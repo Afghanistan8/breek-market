@@ -238,20 +238,45 @@ genlayer call <address> get_stats
 
 ### Frontend (Vercel)
 
-```bash
-cd frontend
-vercel deploy --prod
+Import the repository and set **Root Directory to `frontend`**. That is the only
+setting you need to touch — everything else comes from
+[`frontend/vercel.json`](frontend/vercel.json), which pins the framework, the
+install and build commands, the output directory and the SPA rewrite:
+
+| Setting | Value |
+|---|---|
+| Root Directory | `frontend` |
+| Framework | Vite (pinned in `frontend/vercel.json`) |
+| Install / Build | `npm install` / `npm run build` |
+| Output | `dist` |
+
+There is deliberately **no `vercel.json` at the repository root.** When Root
+Directory is `frontend`, Vercel still reads a root-level `vercel.json` but runs
+its commands with the working directory already inside `frontend/`, so a
+root-level `"installCommand": "npm --prefix frontend install"` resolves to
+`frontend/frontend` and the build dies with:
+
+```
+npm error path /vercel/path0/frontend/frontend/package.json
+Error: Command "npm --prefix frontend install" exited with 254
 ```
 
-Root directory **`frontend`**, build `npm run build`, output `dist`.
-[`frontend/vercel.json`](frontend/vercel.json) carries the SPA rewrite for that
-layout; the repo-root [`vercel.json`](vercel.json) does the same for a project
-whose Root Directory is the repository root, so either import works.
+A single file cannot be correct for both working directories, so the config
+lives only in `frontend/`. Note that a failed import may have **persisted** those
+root-level commands into the project's Build & Output Settings;
+`frontend/vercel.json` sets `installCommand`, `buildCommand` and
+`outputDirectory` explicitly so it overrides them without any dashboard change.
 
-Set `VITE_BREEK_CONTRACT` (and the other `VITE_BREEK_*` variables if not on
-studionet) in the project settings. The defaults in
+No environment variables are required: the defaults in
 [`frontend/src/lib/env.ts`](frontend/src/lib/env.ts) already point at the
-studionet deployment above, so an unconfigured deploy still works.
+studionet deployment above. Set `VITE_BREEK_CONTRACT` (and the other
+`VITE_BREEK_*` variables) only when targeting a different deployment.
+
+Verify a build the way Vercel runs it, without deploying:
+
+```bash
+vercel link && vercel pull && vercel build   # from the repository root
+```
 
 ---
 

@@ -334,7 +334,57 @@ These affect development, not the deployed contract.
 
 ---
 
-## 9. Deviation: `create_market` cross-checks `timeframe` against `kind`
+## 9. Deviation: no `vercel.json` at the repository root
+
+**Brief:** the repo layout lists `vercel.json` at the root, and the frontend
+section says "Root = `frontend`".
+
+**Finding:** those two cannot both hold. Shipping a root `vercel.json` alongside
+`Root Directory = frontend` breaks the build.
+
+With Root Directory set to `frontend`, Vercel still reads a root-level
+`vercel.json`, but executes its commands with the working directory already
+inside `frontend/`. A root config saying `npm --prefix frontend install`
+therefore resolves to `frontend/frontend`:
+
+```
+2026-09-25T14:58:19.180Z  Running "install" command: `npm --prefix frontend install`...
+2026-09-25T14:58:20.928Z  npm error code ENOENT
+2026-09-25T14:58:20.928Z  npm error path /vercel/path0/frontend/frontend/package.json
+2026-09-25T14:58:20.973Z  Error: Command "npm --prefix frontend install" exited with 254
+```
+
+One file cannot carry correct paths for two different working directories, so
+the root `vercel.json` was removed and the config lives only in
+`frontend/vercel.json`.
+
+A second-order effect is worth knowing: the failed import **persisted** the
+root config's commands into the Vercel project's stored Build & Output
+Settings, so deleting the file is not sufficient on its own. `vercel pull`
+showed them still in place afterwards:
+
+```
+rootDirectory     'frontend'
+installCommand    'npm --prefix frontend install'
+buildCommand      'npm --prefix frontend run build'
+outputDirectory   'frontend/dist'
+```
+
+`frontend/vercel.json` therefore sets `installCommand`, `buildCommand` and
+`outputDirectory` explicitly rather than relying on framework defaults, because
+a `vercel.json` value overrides a stored project setting while an absent one
+does not. Verified by running Vercel's own pipeline against those stored
+settings:
+
+```
+Running "install" command: `npm install`...      <- overridden, not the stored one
+> tsc -b && vite build
+Build completed successfully.
+```
+
+---
+
+## 10. Deviation: `create_market` cross-checks `timeframe` against `kind`
 
 The brief fixes the signature as
 `create_market(kind, category, asset, timeframe, window_id)` while also defining
@@ -348,7 +398,7 @@ rather than silently overridden.
 
 ---
 
-## 10. Dust
+## 11. Dust
 
 Pro-rata payouts use floor division (`pool * stake // winning_total`). The
 remainder — at most a few wei per market — stays in the contract. It is not
@@ -356,7 +406,7 @@ claimable and not swept, because a sweep needs a privileged address and Breek
 has none. `test_payouts_never_exceed_the_pool` pins that payouts can never
 exceed the pool.
 
-## 11. Settled, but nobody won
+## 12. Settled, but nobody won
 
 If a market settles to a side that nobody staked, the pool would have no
 claimant. Rather than strand it, `claim` refunds every wallet its own stake
