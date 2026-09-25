@@ -1,15 +1,11 @@
 #!/usr/bin/env python3
 """
-Breek Market -- drive a deployed contract from the command line.
+Breek -- drive a deployed contract from the command line.
 
-The ``genlayer`` CLI (0.39.2) cannot do two things this contract needs:
-
-* attach native GEN to a call, so ``take_position`` is unreachable from it;
-* encode an empty string, so ``create_market`` for the REL kinds is unreachable.
-
-This script does both through ``genlayer-py``. It never resolves a market for
-you by injecting anything -- ``resolve_market`` takes only a market id, and the
-contract fetches its own prices.
+The ``genlayer`` CLI (0.39.2) cannot attach native GEN to a call, so
+``submit_forecast`` is unreachable from it. This script does that through
+``genlayer-py``. It never prices a round by supplying a number --
+``score_round`` takes a round id and the contract fetches its own feeds.
 
 The signing key comes from the ``BREEK_PRIVATE_KEY`` environment variable. It is
 never written to disk, echoed, or sent anywhere except to sign a transaction for
@@ -18,12 +14,13 @@ the network you selected.
 Usage::
 
     export BREEK_PRIVATE_KEY=0x...
-    python scripts/net_exercise.py --address 0xC69e... catalog
-    python scripts/net_exercise.py --address 0xC69e... create REL_DAILY CRYPTO "" DAILY 2026-09-28
-    python scripts/net_exercise.py --address 0xC69e... stake 1 UP 2
-    python scripts/net_exercise.py --address 0xC69e... resolve 1
-    python scripts/net_exercise.py --address 0xC69e... claim 1
-    python scripts/net_exercise.py --address 0xC69e... queue
+    python scripts/net_exercise.py --address 0x2b5c... catalog
+    python scripts/net_exercise.py --address 0x2b5c... open CRYPTO SOL DAILY 2026-09-29
+    python scripts/net_exercise.py --address 0x2b5c... enter 1 118.40
+    python scripts/net_exercise.py --address 0x2b5c... revise 1 117.95
+    python scripts/net_exercise.py --address 0x2b5c... score 1
+    python scripts/net_exercise.py --address 0x2b5c... board 1
+    python scripts/net_exercise.py --address 0x2b5c... collect 1
 """
 
 from __future__ import annotations
@@ -67,8 +64,7 @@ def wait(client, tx_hash):
     if leader:
         first = leader[0]
         print("  execution: %s" % first.get("execution_result"))
-        result = first.get("result") or {}
-        payload = result.get("payload")
+        payload = (first.get("result") or {}).get("payload")
         if isinstance(payload, dict):
             print("  returned : %s" % payload.get("readable"))
     print("  status   : %s" % receipt.get("status_name", receipt.get("status")))
@@ -76,120 +72,113 @@ def wait(client, tx_hash):
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Drive a deployed Breek Market contract")
+    ap = argparse.ArgumentParser(description="Drive a deployed Breek contract")
     ap.add_argument("--address", required=True, help="deployed contract address")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("catalog")
     sub.add_parser("stats")
-    sub.add_parser("queue", help="markets that are ready to settle")
+    sub.add_parser("queue", help="rounds whose window has closed but are unscored")
 
     p = sub.add_parser("list")
     p.add_argument("--offset", type=int, default=0)
     p.add_argument("--limit", type=int, default=10)
 
-    p = sub.add_parser("market")
-    p.add_argument("market_id", type=int)
+    for name in ("round", "evidence", "board", "score", "collect"):
+        p = sub.add_parser(name)
+        p.add_argument("round_id", type=int)
 
-    p = sub.add_parser("evidence")
-    p.add_argument("market_id", type=int)
-
-    p = sub.add_parser("create")
-    p.add_argument("kind")
+    p = sub.add_parser("open")
     p.add_argument("category")
-    p.add_argument("asset", help='catalog symbol, or "" for the REL kinds')
+    p.add_argument("asset")
     p.add_argument("timeframe")
     p.add_argument("window_id")
 
-    p = sub.add_parser("stake")
-    p.add_argument("market_id", type=int)
-    p.add_argument("side")
-    p.add_argument("gen", type=int, help="whole GEN, 2 to 4")
+    p = sub.add_parser("enter")
+    p.add_argument("round_id", type=int)
+    p.add_argument("forecast", help="price as a decimal string, e.g. 118.40")
 
-    p = sub.add_parser("resolve")
-    p.add_argument("market_id", type=int)
+    p = sub.add_parser("revise")
+    p.add_argument("round_id", type=int)
+    p.add_argument("forecast")
 
-    p = sub.add_parser("claim")
-    p.add_argument("market_id", type=int)
-
-    p = sub.add_parser("position")
-    p.add_argument("market_id", type=int)
+    p = sub.add_parser("entry")
+    p.add_argument("round_id", type=int)
     p.add_argument("--who")
 
     args = ap.parse_args()
     client, account = build_client()
     addr = args.address
 
-    read_only = {
+    reads = {
         "catalog": ("get_catalog", []),
         "stats": ("get_stats", []),
-        "queue": ("list_resolvable", [10]),
+        "queue": ("list_scoreable", [10]),
     }
-    if args.cmd in read_only:
-        fn, fn_args = read_only[args.cmd]
+    if args.cmd in reads:
+        fn, fn_args = reads[args.cmd]
         show(args.cmd, client.read_contract(address=addr, function_name=fn, args=fn_args))
         return 0
 
     if args.cmd == "list":
-        show("markets", client.read_contract(
-            address=addr, function_name="list_markets", args=[args.offset, args.limit]))
+        show("rounds", client.read_contract(
+            address=addr, function_name="list_rounds", args=[args.offset, args.limit]))
         return 0
 
-    if args.cmd == "market":
-        show("market %d" % args.market_id, client.read_contract(
-            address=addr, function_name="get_market", args=[args.market_id]))
+    if args.cmd in ("round", "evidence"):
+        fn = "get_round" if args.cmd == "round" else "get_evidence"
+        show("%s %d" % (args.cmd, args.round_id), client.read_contract(
+            address=addr, function_name=fn, args=[args.round_id]))
         return 0
 
-    if args.cmd == "evidence":
-        show("evidence %d" % args.market_id, client.read_contract(
-            address=addr, function_name="get_evidence", args=[args.market_id]))
+    if args.cmd == "board":
+        show("leaderboard %d" % args.round_id, client.read_contract(
+            address=addr, function_name="get_leaderboard", args=[args.round_id, 50]))
         return 0
 
-    if args.cmd == "position":
+    if args.cmd == "entry":
         who = args.who or account.address
-        show("position", client.read_contract(
-            address=addr, function_name="get_position", args=[args.market_id, who]))
+        show("entry", client.read_contract(
+            address=addr, function_name="get_entry", args=[args.round_id, who]))
         return 0
 
-    if args.cmd == "create":
-        print("create_market(%s, %s, %r, %s, %s)" % (
-            args.kind, args.category, args.asset, args.timeframe, args.window_id))
+    if args.cmd == "open":
+        print("open_round(%s, %s, %s, %s)" % (
+            args.category, args.asset, args.timeframe, args.window_id))
         wait(client, client.write_contract(
-            address=addr,
-            function_name="create_market",
-            args=[args.kind, args.category, args.asset, args.timeframe, args.window_id],
-            value=0,
-        ))
+            address=addr, function_name="open_round",
+            args=[args.category, args.asset, args.timeframe, args.window_id], value=0))
         return 0
 
-    if args.cmd == "stake":
-        if not 2 <= args.gen <= 4:
-            print("stake must be 2, 3 or 4 GEN -- anything else is refunded on chain")
-        value = args.gen * GEN
-        print("take_position(%d, %s) with %d wei" % (args.market_id, args.side, value))
+    if args.cmd == "enter":
+        fee = int(client.read_contract(
+            address=addr, function_name="get_catalog", args=[])["entry_fee_wei"])
+        print("submit_forecast(%d, %s) with %d wei" % (args.round_id, args.forecast, fee))
         wait(client, client.write_contract(
-            address=addr,
-            function_name="take_position",
-            args=[args.market_id, args.side],
-            value=value,
-        ))
-        show("position", client.read_contract(
-            address=addr, function_name="get_position",
-            args=[args.market_id, account.address]))
+            address=addr, function_name="submit_forecast",
+            args=[args.round_id, args.forecast], value=fee))
+        show("entry", client.read_contract(
+            address=addr, function_name="get_entry",
+            args=[args.round_id, account.address]))
         return 0
 
-    if args.cmd == "resolve":
-        print("resolve_market(%d) -- the contract fetches its own prices" % args.market_id)
+    if args.cmd == "revise":
         wait(client, client.write_contract(
-            address=addr, function_name="resolve_market",
-            args=[args.market_id], value=0))
+            address=addr, function_name="revise_forecast",
+            args=[args.round_id, args.forecast], value=0))
+        return 0
+
+    if args.cmd == "score":
+        print("score_round(%d) -- the contract fetches its own feeds" % args.round_id)
+        wait(client, client.write_contract(
+            address=addr, function_name="score_round", args=[args.round_id], value=0))
         show("evidence", client.read_contract(
-            address=addr, function_name="get_evidence", args=[args.market_id]))
+            address=addr, function_name="get_evidence", args=[args.round_id]))
         return 0
 
-    if args.cmd == "claim":
+    if args.cmd == "collect":
         wait(client, client.write_contract(
-            address=addr, function_name="claim", args=[args.market_id], value=0))
+            address=addr, function_name="collect", args=[args.round_id], value=0))
         return 0
 
     return 1

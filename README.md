@@ -1,20 +1,80 @@
-# Breek Market
+# Breek
 
-**Permissionless GMT+1 prediction markets that settle themselves, on GenLayer.**
+**A forecast accuracy contest that grades itself, on GenLayer.**
 
-Stake GEN on whether a listed asset's GMT+1 candle closes up or down, or on which
-asset in a category posts the strongest return over a GMT+1 window. When the
-window closes, **anyone** can settle the market — and the contract goes and
-fetches the prices itself, from two independent public feeds, inside GenLayer's
-equivalence-principle consensus.
+Each round asks one question: *what will this asset be worth at the end of a
+GMT+1 window?*
 
-- Both feeds agree → the market settles, winners split the pool pro-rata.
-- They disagree, or either ties → **inconclusive**, every stake refunded in full.
-- A single source can never produce a direction or a winner.
-- No owner, no pause, no admin resolve, no upgrade hook, no privileged address.
+You pay a flat fee, name a price, and revise it free until the window opens.
+When it closes, the contract goes and fetches two independent public feeds
+itself and grades everyone against the price those feeds agree on. Your share of
+the pot is your accuracy relative to everyone else's.
 
-`resolve_market(market_id)` takes a market id and nothing else. Callers cannot
-pass prices, URLs, slugs, winners, directions or results.
+```
+error   = |forecast − settled| ÷ settled
+weight  = cutoff − error        (zero once error ≥ cutoff)
+payout  = pot × weight ÷ Σ weights
+```
+
+There is no owner, no pause, no admin scorer and no upgrade hook.
+`score_round(round_id)` takes a round id and nothing else.
+
+---
+
+## This is not a prediction market
+
+That distinction is the whole design, so it is worth being precise about.
+
+| | A prediction market | Breek |
+|---|---|---|
+| What you submit | a **side** | a **number** |
+| Outcome space | binary / categorical | continuous |
+| Settlement produces | a **verdict** | a **price** |
+| What two feeds do | vote; must agree on the verdict | converge; must agree on the value |
+| Who gets paid | the winning side splits the pool | everyone in range, in proportion to accuracy |
+| Your position | locked once taken | revisable, free, until the window opens |
+| Being slightly wrong | pays the same as being wildly wrong | pays strictly more |
+
+There is no counterparty, no order book, no odds and no side to be on. You are
+graded on a continuum against a measured value, so a forecast 0.4% off earns
+more than one 3% off, which earns more than one 9% off, which earns more than
+one 11% off — that last being nothing at all.
+
+---
+
+## The scoring rule, in full
+
+**Accuracy weight** falls linearly from a perfect call to zero at the cutoff:
+
+- Call it exactly → weight `1000`, the maximum.
+- Off by 2.5% (250 bp) → weight `750`.
+- Off by 10% (the cutoff) or worse → weight `0`, and you collect nothing.
+
+Three consequences worth naming:
+
+1. **Everyone inside the band is paid.** Nothing is "won"; the pot is divided in
+   proportion to accuracy.
+2. **Closer strictly beats further.** No threshold to scrape over, no cliff
+   except the cutoff itself.
+3. **A wild guess costs its owner and nobody else.** It scores zero and
+   contributes zero to the denominator, so it cannot dilute people who did the
+   work.
+
+If *nobody* lands inside the band, no accuracy earned the pot, so every entry
+fee is returned instead.
+
+Here is a real round, graded against live feed data by
+`scripts/demo_rounds.py`:
+
+```
+settled at 116.58191598   (gate.io 116.61000000 / coingecko 116.55383196, gap 4 bp)
+
+  called         off by     weight   share
+  117.30000000   0.61%      939      1.596 GEN
+  115.05750000   1.30%      870      1.479 GEN
+  121.90000000   4.56%      544      0.925 GEN
+  287.50000000   146.60%    0        —
+```
 
 ---
 
@@ -25,148 +85,108 @@ pass prices, URLs, slugs, winners, directions or results.
 | Network | **studionet** (GenLayer Studio Network) |
 | Chain id | `61999` |
 | RPC | `https://studio.genlayer.com/api` |
-| Contract | [`0xC69eDF8Cd4d723002d1d658CAB3AD616A34532d7`](https://genlayer-explorer.vercel.app/address/0xC69eDF8Cd4d723002d1d658CAB3AD616A34532d7) |
+| Contract | [`0x2b5cF7247380d9B487758f27A2A5e1FFA7d821f7`](https://genlayer-explorer.vercel.app/address/0x2b5cF7247380d9B487758f27A2A5e1FFA7d821f7) |
 | Runner | `py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6` |
-| `genlayer` CLI | **0.39.2** |
-| `genlayer-test` | 0.29.2 · `genvm-linter` 0.11.0 |
-| `genlayer-js` | **1.1.8** (pinned exactly) |
 | Frontend | https://breek-market-puce.vercel.app/ |
-| Browser writes | mechanism verified, **not yet confirmed on chain** — see [`docs/LIVE.md`](docs/LIVE.md) |
+| `genlayer-js` | **1.1.8** (pinned exactly) |
+| `genlayer` CLI | 0.39.2 · `genlayer-test` 0.29.2 · `genvm-linter` 0.11.0 |
 
-Live status, executed transactions and what has *not* been executed:
-[`docs/LIVE.md`](docs/LIVE.md).
-
----
-
-## What you can bet on
-
-Assets are a compile-time catalog. Nothing beyond a catalog key is
-caller-supplied.
-
-| Category | Assets | "Return" means | Settlable |
-|---|---|---|---|
-| `CRYPTO` | SOL, ETH, NEAR | `(close - open) / open` on the quoted USD/USDT price | **yes** |
-| `DOMINANCE` | BTC.D, ETH.D, OTHERS.D | change in market-cap dominance percentage | **no — catalog only** |
-
-### Market kinds
-
-| Kind | You predict |
-|---|---|
-| `DIR_DAILY` | one asset closes **UP** or **DOWN** over one GMT+1 day |
-| `DIR_WEEKLY` | the same over one GMT+1 week |
-| `REL_DAILY` | which catalog asset has the **strictly greatest** return that GMT+1 day |
-| `REL_WEEKLY` | the same over that GMT+1 week |
-
-A flat close counts as **DOWN** — a market must resolve to a side someone can
-hold. An exact tie in a relative market settles nothing and refunds everyone.
-
-### Why DOMINANCE is listed but not settlable
-
-Settling dominance over a past window needs BTC market cap, ETH market cap **and
-total crypto market cap** at two past instants, from two independent keyless
-feeds. No second such feed exists: every keyless dominance endpoint publishes
-current values only, CoinGecko's historical global chart is `401 PRO API
-subscribers`, and the feeds that do work disagree with each other by ~3
-percentage points because they aggregate different coin universes
-(CoinPaprika `55.95` vs CoinLore `58.82` at the same moment).
-
-Rather than settle from one source, `create_market` rejects the category with
-`EXPECTED:CATEGORY_NOT_SETTLABLE`. The catalog still lists it, flagged, so the
-gap is visible rather than hidden. Full evidence in
-[`docs/SPEC.md`](docs/SPEC.md).
-
-### Why there is no hourly
-
-`scripts/check_sources.py` could not prove that both sources reconstruct the same
-exact GMT+1 hour with keyless public APIs. Hourly is therefore not shipped. The
-two-source rule was not weakened to keep it.
+Live status and executed transactions: [`docs/LIVE.md`](docs/LIVE.md).
 
 ---
 
-## Stake rules
+## Getting a price without trusting anyone
 
-- **2 to 4 GEN** per wallet per market.
-- Top up the **same** side freely inside that band.
-- **Never switch sides.** A stake on the other side is refunded.
-- Staking closes the instant the window opens.
+A normal smart contract cannot make an HTTP request, so somebody has to push the
+price on chain — and that somebody becomes the trust assumption. Breek's
+contract fetches both feeds itself, inside a GenLayer `eq_principle.strict_eq`
+block. Every validator independently fetches, derives the same midpoint, and
+builds one canonical string; consensus passes only if those strings match byte
+for byte.
 
-Anything invalid — too small, too large, too late, wrong side, unknown market —
-is **refunded inside the same transaction** and returns `REFUNDED:<reason>`,
-rather than reverting. A revert after value has been credited would strand the
-stake in the contract with no way out; Breek does not have that bug, and
-[`tests/direct/test_lifecycle.py`](tests/direct/test_lifecycle.py) pins every
-case.
-
----
-
-## Two-source settlement
-
-| | Source A | Source B |
+| | Feed A | Feed B |
 |---|---|---|
-| Feed | Gate.io hourly spot candlesticks | CoinGecko `market_chart/range` |
-| Window reconstruction | from candle **open times** — 24 for a day, 168 for a week | samples at **exactly** the two window instants |
+| Source | Gate.io hourly spot candles | CoinGecko `market_chart/range` |
+| Window reconstruction | from candle **open times** — 24 for a day, 168 for a week | the sample at **exactly** the closing instant |
 | Keyless | yes | yes |
 
-Both must measure **the same two instants**: the price at `window_start` and the
-price at `window_end`. Comparing a 23-hour sample to a 24-hour close is
-forbidden, and the parser fails rather than substituting a nearby point.
+The two are not voting. A forecast needs an actual number, so they have to
+**converge**: if they sit more than **50 bp** apart there is no single honest
+price to grade against, the round voids, and every fee comes back. The settled
+price is their midpoint.
 
-Gate.io's *daily* bars are UTC-aligned, which is one hour off a GMT+1 day, so the
-window is always rebuilt from hourly bars with the first and last open times
-asserted exactly.
-
-Each source produces its own verdict from its own numbers. Then:
+A real agreed payload:
 
 ```
-final = a_verdict  if  a_verdict == b_verdict and neither is TIE
-        else INCONCLUSIVE
+f1|CRYPTO|SOL|DAILY|2026-09-24|gate.io|coingecko|116.61000000|116.55383196|4|116.58191598
 ```
 
-After the equivalence block returns, the contract re-derives the entire result
-from the agreed payload with **no network access** — re-binding every field to
-this market and this window, and recomputing both verdicts and the final result
-from the raw prices. A payload that merely asserts a winner is rejected with
-`INVARIANT:`.
+After the block returns, the contract re-derives everything offline — re-binding
+the payload to this round and this window, recomputing the gap and the midpoint.
+A payload that merely asserts a price is rejected with `INVARIANT:`.
 
-A real agreed payload, verbatim:
+---
 
-```
-v1|DIR_DAILY|CRYPTO|SOL|DAILY|gate.io|coingecko|2026-09-24|SOL:115.15000000:116.61000000|UP|SOL:115.09859487:116.55383196|UP|UP
-```
+## Rules that follow from the design
 
-Full walkthrough: [`docs/RESOLUTION.md`](docs/RESOLUTION.md).
+**Entering.** One flat fee, one entry per wallet, up to 200 per round. Everybody
+buys in at the same price, so only accuracy separates the payouts.
+
+**Revising.** Free and unlimited until the window opens; only your last number is
+graded. A market locks you to a side because the side *is* the bet. Here the bet
+is precision, so there is no reason to punish someone for sharpening an estimate.
+
+**Sealed until scored.** Forecasts stay hidden while a round is accepting.
+Publishing them live would let a late entrant copy the field, turning a skill
+contest into a herding exercise.
+
+**Nothing gets stranded.** Anything invalid — wrong fee, malformed number, too
+late, already entered — is refunded *inside the same transaction* rather than
+reverting. A revert after value has been credited would trap the fee with no way
+out.
+
+**When a feed is down.** Scoring is retryable: a timeout or rate limit reverts
+with `TRANSIENT:`, records nothing, and the round stays in the queue. Five days
+after the window closes an unscored round refunds everyone — and on that path it
+makes **no web request at all**. The contract never invents a price.
 
 ---
 
 ## GMT+1, precisely
 
-GMT+1 is a **fixed +3600 second offset** from UTC. No daylight saving, no
-timezone database, ever. Midnight GMT+1 is **23:00 UTC on the previous day**.
+GMT+1 is a **fixed +3600 second offset**. No daylight saving, no timezone
+database. Midnight GMT+1 is **23:00 UTC on the previous day**.
 
 ```
-window_start        = day_index(D) * 86400 - 3600
-cutoff_at           = window_start          # staking closes when the candle opens
-settles_at          = window_start + 86400  # (or + 604800 for a week)
-terminal_refund_at  = settles_at + 5 days
+window_start = day_index(D) * 86400 - 3600
+locks_at     = window_start          # forecasts close when the window opens
+scoreable_at = window_start + 86400  # (or + 604800 for a week)
+expires_at   = scoreable_at + 5 days
 ```
 
-A weekly window runs Monday 00:00 GMT+1 to the following Monday 00:00 GMT+1.
-Every time in the interface is labelled GMT+1 for this reason.
-
-All lifecycle time comes from consensus time (`gl.message_raw['datetime']`) —
-never a host clock, never `Date.now()`.
+A weekly window runs Monday 00:00 GMT+1 to the following Monday 00:00 GMT+1. All
+lifecycle time comes from consensus time (`gl.message_raw['datetime']`) — never a
+host clock, never `Date.now()`.
 
 ---
 
-## If nobody settles
+## What is listed
 
-Settling is retryable. A timeout or rate limit reverts with `TRANSIENT:` and
-records nothing; the market stays in the resolve queue. A malformed or
-incomplete window reverts with `EXTERNAL:`.
+| Category | Assets | Priceable |
+|---|---|---|
+| `CRYPTO` | SOL, ETH, NEAR | **yes** |
+| `DOMINANCE` | BTC.D, ETH.D, OTHERS.D | **no — listed only** |
 
-If **five days** pass after the window closed and still nobody has settled it,
-the market becomes `INCONCLUSIVE` and refunds everyone — and on that path it
-makes **no web request at all**. The contract never invents a price.
+Dominance needs BTC and ETH market cap *and total crypto market cap* at a past
+instant, from two independent keyless feeds. No second such feed exists:
+CoinGecko's historical global chart is `401 PRO API subscribers`, and the feeds
+that do work disagree by ~3 percentage points because they aggregate different
+coin universes (CoinPaprika `55.95` vs CoinLore `58.82` at the same moment). A
+round that cannot be priced twice does not open. Evidence in
+[`docs/SPEC.md`](docs/SPEC.md).
+
+Hourly is not offered for the same reason: neither feed could be shown to
+reconstruct the same exact GMT+1 hour.
 
 ---
 
@@ -176,112 +196,31 @@ makes **no web request at all**. The contract never invents a price.
 pip install -r requirements.txt -r requirements-dev.txt
 ```
 
-### Probe the live feeds
-
-Do this first. It is the gate before trusting any parser.
+**Probe the live feeds.** Do this first; it is the gate before trusting any
+parser.
 
 ```bash
 python scripts/check_sources.py --json docs/source-probe.json
 ```
 
-Hits the real endpoints and prints open/close for every asset-window on both
-sources, the verdict each would produce, and whether they agree.
-
-### Tests and lint
+**Tests and lint.** 109 tests, in-process, no network.
 
 ```bash
-python -m pytest tests          # 188 tests, in-process, no network
-genvm-lint lint contracts/BreekMarket.py
+python -m pytest tests
+genvm-lint lint contracts/BreekForecast.py
 ```
 
-The suite runs the real contract file through the real py-genlayer runner via
-`gltest.direct`. It covers GMT+1 calendar maths and leap days, decimal scaling,
-both feed parsers, flat-is-DOWN, ties, source disagreement, payload forgery,
-stake caps and refunds, pro-rata claims, the zero-HTTP terminal path, and
-leader/validator convergence.
-
-### Full lifecycle against live feeds
+**Walk a whole round against real feeds** — open, enter, revise, warp past the
+window, score, collect, with real Gate.io and CoinGecko bytes and no mocks:
 
 ```bash
-python scripts/demo_markets.py
+python scripts/demo_rounds.py
 ```
 
-Runs create → stake → warp past the GMT+1 window → resolve → claim for
-`DIR_DAILY`, `REL_DAILY`, `REL_WEEKLY` and `DIR_WEEKLY`, with **real** Gate.io
-and CoinGecko bytes — no mocks. Consensus time is warped rather than slept
-through. Also demonstrates the DOMINANCE refusal and the zero-HTTP terminal
-refund.
-
-### Frontend
+**Frontend.**
 
 ```bash
-cd frontend
-cp .env.example .env.local     # or keep the defaults
-npm install
-npm run dev                    # http://localhost:5173
-```
-
----
-
-## Deploying
-
-### Contract
-
-```bash
-genlayer network set studionet
-genlayer account unlock
-genlayer deploy --contract contracts/BreekMarket.py
-```
-
-Then point the frontend at the new address via `VITE_BREEK_CONTRACT`.
-
-Verify it is live:
-
-```bash
-genlayer call <address> get_catalog
-genlayer call <address> get_stats
-```
-
-### Frontend (Vercel)
-
-Import the repository and set **Root Directory to `frontend`**. That is the only
-setting you need to touch — everything else comes from
-[`frontend/vercel.json`](frontend/vercel.json), which pins the framework, the
-install and build commands, the output directory and the SPA rewrite:
-
-| Setting | Value |
-|---|---|
-| Root Directory | `frontend` |
-| Framework | Vite (pinned in `frontend/vercel.json`) |
-| Install / Build | `npm install` / `npm run build` |
-| Output | `dist` |
-
-There is deliberately **no `vercel.json` at the repository root.** When Root
-Directory is `frontend`, Vercel still reads a root-level `vercel.json` but runs
-its commands with the working directory already inside `frontend/`, so a
-root-level `"installCommand": "npm --prefix frontend install"` resolves to
-`frontend/frontend` and the build dies with:
-
-```
-npm error path /vercel/path0/frontend/frontend/package.json
-Error: Command "npm --prefix frontend install" exited with 254
-```
-
-A single file cannot be correct for both working directories, so the config
-lives only in `frontend/`. Note that a failed import may have **persisted** those
-root-level commands into the project's Build & Output Settings;
-`frontend/vercel.json` sets `installCommand`, `buildCommand` and
-`outputDirectory` explicitly so it overrides them without any dashboard change.
-
-No environment variables are required: the defaults in
-[`frontend/src/lib/env.ts`](frontend/src/lib/env.ts) already point at the
-studionet deployment above. Set `VITE_BREEK_CONTRACT` (and the other
-`VITE_BREEK_*` variables) only when targeting a different deployment.
-
-Verify a build the way Vercel runs it, without deploying:
-
-```bash
-vercel link && vercel pull && vercel build   # from the repository root
+cd frontend && npm install && npm run dev
 ```
 
 ---
@@ -290,66 +229,63 @@ vercel link && vercel pull && vercel build   # from the repository root
 
 | Method | Who | What it does |
 |---|---|---|
-| `create_market(kind, category, asset, timeframe, window_id)` | anyone | Lists a market on a catalog asset for a future GMT+1 window. |
-| `take_position(market_id, side)` *(payable)* | anyone | Stakes 2–4 GEN. Refunds in-call if invalid. |
-| `resolve_market(market_id)` | anyone | Fetches both feeds, settles or refunds. |
-| `claim(market_id)` | position owner | Payout or refund. Idempotent. |
-| `get_catalog` `get_market` `get_phase` `get_evidence` `get_position` `get_stats` `list_markets` `list_resolvable` `list_positions` | anyone | Views. Wei as decimal strings, addresses lowercase. |
+| `open_round(category, asset, timeframe, window_id)` | anyone | Puts a question up for a future GMT+1 window. |
+| `submit_forecast(round_id, price)` *(payable)* | anyone | Enters with a number for the flat fee. Refunds in-call if invalid. |
+| `revise_forecast(round_id, price)` | entrant | Changes your number, free, before the lock. |
+| `score_round(round_id)` | anyone | Fetches both feeds, prices the round, grades the field. |
+| `collect(round_id)` | entrant | Your accuracy share, or a refund. Idempotent. |
+| `get_catalog` `get_round` `get_phase` `get_evidence` `get_entry` `get_leaderboard` `get_stats` `list_rounds` `list_scoreable` `list_entries` | anyone | Views. Wei as decimal strings, addresses lowercase. |
 
-### Error prefixes
-
-| Prefix | Meaning |
-|---|---|
-| `EXPECTED:` | bad input or wrong phase |
-| `TRANSIENT:` | retryable fetch failure; the market stays resolvable |
-| `EXTERNAL:` | a source is unusable for this window |
-| `INVARIANT:` | the agreed payload failed re-derivation |
+**Error prefixes.** `EXPECTED:` bad input or wrong phase · `TRANSIENT:`
+retryable fetch, round stays scoreable · `EXTERNAL:` feed unusable for this
+window · `INVARIANT:` agreed payload failed re-derivation.
 
 ---
 
-## Known network limitations
-
-These affect tooling, not the deployed contract. Details and workarounds in
-[`docs/SPEC.md`](docs/SPEC.md).
-
-- **`genlayer` CLI 0.39.2 has no `--value` flag**, so `take_position` cannot be
-  called from it. Use the frontend, or `scripts/net_exercise.py`.
-- **The CLI cannot encode an empty string**, so creating `REL_*` markets from it
-  is not possible (`""` is coerced to integer `0`). Same workarounds.
-- **The runner tag `py-genlayer:test`** used by the CLI project template does not
-  resolve on studionet — it deploys but fails with
-  `contract_error: invalid_contract`. Breek pins the runner by content hash.
-- **`genvm-lint validate` cannot load the SDK** on the current release (it looks
-  under `runners/…` while the artifacts moved to
-  `executor/v0.2.17/legacy-runners/…`). `genvm-lint lint` passes and is the
-  check to run.
+## Deploying
 
 ```bash
-# stake and create REL markets on a deployed contract
-export BREEK_PRIVATE_KEY=0x...
-python scripts/net_exercise.py --address <address> stake 1 UP 2
-python scripts/net_exercise.py --address <address> create REL_DAILY CRYPTO "" DAILY 2026-09-28
+genlayer network set studionet
+genlayer account unlock
+genlayer deploy --contract contracts/BreekForecast.py
 ```
+
+Then point `VITE_BREEK_CONTRACT` at the new address. For the frontend, import
+the repo on Vercel with **Root Directory = `frontend`**; everything else comes
+from [`frontend/vercel.json`](frontend/vercel.json). There is deliberately no
+`vercel.json` at the repository root — [`docs/SPEC.md`](docs/SPEC.md) records
+why it breaks the build.
+
+---
+
+## Known limitations
+
+- `genlayer` CLI 0.39.2 has **no `--value` flag**, so `submit_forecast` cannot be
+  called from it. Use the frontend or `scripts/net_exercise.py`.
+- `genvm-lint validate` cannot load the SDK on the current release (it looks
+  under `runners/…` while the artifacts moved to
+  `executor/v0.2.17/legacy-runners/…`). `genvm-lint lint` passes.
+- Accuracy shares use floor division, so at most a few wei of dust stays in the
+  contract per round. It is not sweepable — a sweep would need a privileged
+  address, and there isn't one.
 
 ---
 
 ## Layout
 
 ```
-contracts/BreekMarket.py     the entire protocol, one file
+contracts/BreekForecast.py   the whole protocol, one file
 docs/ARCHITECTURE.md         how it is built and why it needs GenLayer
-docs/RESOLUTION.md           the settlement path, step by step
+docs/SCORING.md              the grading rule, step by step
 docs/SPEC.md                 spec, deviations, and the evidence for each
-docs/source-probe.json       committed live probe output
+docs/LIVE.md                 what is deployed and what has actually run
 frontend/                    Vite + React + TypeScript app
 scripts/check_sources.py     live feed probe
-scripts/demo_markets.py      lifecycle walkthrough against live feeds
+scripts/demo_rounds.py       full round walkthrough against live feeds
 scripts/net_exercise.py      drive a deployed contract
 tests/direct/                in-process tests through the real runner
 tests/consensus/             leader/validator convergence
 ```
-
----
 
 ## License
 

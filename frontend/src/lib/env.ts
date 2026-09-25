@@ -11,8 +11,8 @@ const read = (key: string, fallback: string): string => {
 };
 
 export const env = {
-  /** Deployed BreekMarket Intelligent Contract. */
-  contract: read("VITE_BREEK_CONTRACT", "0xC69eDF8Cd4d723002d1d658CAB3AD616A34532d7"),
+  /** Deployed BreekForecast Intelligent Contract. */
+  contract: read("VITE_BREEK_CONTRACT", "0x2b5cF7247380d9B487758f27A2A5e1FFA7d821f7"),
   chainId: Number(read("VITE_BREEK_CHAIN_ID", "61999")),
   rpc: read("VITE_BREEK_RPC", "https://studio.genlayer.com/api"),
   network: read("VITE_BREEK_NETWORK", "studionet"),

@@ -1,175 +1,197 @@
 import { useCatalog } from "../hooks";
 import { env, explorerAddress } from "../lib/env";
+import { bpsAsPct, fmtGen } from "../lib/format";
 
 export default function HowItWorks() {
   const catalog = useCatalog();
-  const sources = catalog.data?.sources;
+  const c = catalog.data;
 
   return (
-    <div className="stack prose" style={{ gap: 18, maxWidth: 820 }}>
-      <div>
-        <h1 style={{ fontSize: 22 }}>How Breek settles a market</h1>
+    <div className="stack prose" style={{ gap: 18, maxWidth: 800 }}>
+      <header className="masthead" style={{ marginBottom: 0 }}>
+        <h1 style={{ fontSize: 22 }}>How a round gets its number</h1>
         <p>
-          Almost every prediction market has a trusted party somewhere: an admin key, a
-          multisig, a single oracle feed. Breek removes that party. Nobody &mdash; including
-          whoever deployed the contract &mdash; can decide an outcome.
+          Breek is a forecasting contest, not a betting market. You are not
+          taking a position against a counterparty and there is no side to be on.
+          You name a price, and you are graded on the distance between your
+          number and the one the world actually produced.
         </p>
-      </div>
+      </header>
 
-      <section className="card card-pad">
-        <div className="eyebrow">The rule the whole thing rests on</div>
-        <div className="sources" style={{ marginTop: 12 }}>
-          <div className="source a">
-            <h4>Source A &middot; {sources?.a ?? "gate.io"}</h4>
-            <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-              Hourly spot candlesticks. The contract rebuilds the GMT+1 window from candle{" "}
-              <em>open times</em> &mdash; 24 of them for a day, 168 for a week &mdash; and takes
-              the first candle&rsquo;s open and the last candle&rsquo;s close.
-            </p>
-          </div>
-          <div className="source b">
-            <h4>Source B &middot; {sources?.b ?? "coingecko"}</h4>
-            <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-              An independent price series. The contract selects the samples at{" "}
-              <em>exactly</em> the two window instants, so it can never compare a 23-hour sample
-              against a 24-hour close.
-            </p>
-          </div>
+      <section className="panel panel-pad">
+        <div className="section-rule">
+          <span>The scoring rule</span>
         </div>
-
-        <div className="verdict-join" style={{ marginTop: 14 }}>
-          <span className="mono" style={{ color: "var(--src-a)" }}>
-            A&rsquo;s verdict
-          </span>
-          <span className="dim">must equal</span>
-          <span className="mono" style={{ color: "var(--src-b)" }}>
-            B&rsquo;s verdict
-          </span>
-          <span className="dim">or nobody wins</span>
-        </div>
-
-        <ul style={{ marginTop: 14 }}>
-          <li>
-            <strong>UP + UP</strong> settles UP. <strong>DOWN + DOWN</strong> settles DOWN.
-          </li>
-          <li>
-            <strong>Same winner twice</strong> settles that winner.
-          </li>
-          <li>
-            <strong>Any disagreement, any tie, any missing verdict</strong> is{" "}
-            <em>inconclusive</em>: every stake is refunded in full.
-          </li>
-          <li>
-            A single source can <em>never</em> produce a direction or a winner. Not as a policy
-            &mdash; the code cannot express it.
-          </li>
-        </ul>
-      </section>
-
-      <section className="card card-pad">
-        <h3 style={{ marginTop: 0 }}>Why this needs GenLayer</h3>
-        <p>
-          A normal smart contract cannot make an HTTP request. Breek&rsquo;s contract does,
-          inside a GenLayer <code>eq_principle.strict_eq</code> block: every validator
-          independently fetches both feeds, derives the verdicts, and builds one canonical
-          string. Consensus passes only if those strings match <em>byte for byte</em>. If one
-          validator saw different data, there is no agreement and nothing settles.
+        <p style={{ marginTop: 0 }}>
+          When the window closes the contract fetches two independent feeds and
+          takes their midpoint as the settled price. Your <em>error</em> is how
+          far your forecast sat from it, in basis points. Your{" "}
+          <em>accuracy weight</em> falls linearly from a perfect call down to
+          zero at the cutoff:
         </p>
-        <p>
-          Once the block returns, the contract re-derives the entire result from the agreed
-          string with no network access at all: it re-checks that the payload belongs to{" "}
-          <em>this</em> market and <em>this</em> window, recomputes both verdicts from the raw
-          prices, and recomputes how they combine. A payload that simply asserts a winner is
-          rejected. That agreed string is then stored as the market&rsquo;s evidence, which you
-          can read on any settled market&rsquo;s page.
-        </p>
-      </section>
-
-      <section className="card card-pad">
-        <h3 style={{ marginTop: 0 }}>GMT+1, precisely</h3>
-        <p>
-          Every window is a GMT+1 calendar day or week, and GMT+1 here is a fixed{" "}
-          <code>+3600</code> second offset &mdash; no daylight saving, no timezone database.
-          Midnight GMT+1 is <strong>23:00 UTC on the previous day</strong>. A weekly window runs
-          Monday 00:00 GMT+1 to the following Monday 00:00 GMT+1.
-        </p>
-        <p>
-          Every time in this interface is labelled GMT+1 for that reason. Staking closes the
-          instant the candle opens; settling opens the instant it closes.
-        </p>
-      </section>
-
-      <section className="card card-pad">
-        <h3 style={{ marginTop: 0 }}>Staking and payouts</h3>
+        <pre className="payload" style={{ marginTop: 8 }}>
+{`error   = |forecast − settled| ÷ settled
+weight  = cutoff − error        (zero once error ≥ cutoff)
+payout  = pot × weight ÷ Σ weights`}
+        </pre>
         <ul>
-          <li>2 to 4 GEN per wallet per market. Top up your side freely inside that band.</li>
           <li>
-            You can never switch sides. A stake on the other side is refunded inside the same
-            transaction.
+            <strong>Everyone inside the band is paid.</strong> There is no
+            winning side taking the pot; each entrant earns a share proportional
+            to how close they were.
           </li>
           <li>
-            Anything invalid &mdash; too small, too large, too late, wrong side &mdash; is
-            refunded in that same call rather than reverting, so a stake can never get stranded
-            in the contract with no way out.
+            <strong>Closer always pays more.</strong> Being nearer than someone
+            else strictly beats them, with no threshold to scrape over.
           </li>
-          <li>Winners split the entire pool pro-rata by stake. Losers get nothing.</li>
           <li>
-            If nobody happened to back the winning side, everyone is refunded instead of the pool
-            sitting unclaimable.
+            <strong>A wild guess earns nothing</strong> and adds nothing to the
+            denominator, so it cannot dilute people who did the work.
+          </li>
+          <li>
+            <strong>If nobody lands inside the band</strong>, no accuracy earned
+            the pot, so every fee is refunded instead.
           </li>
         </ul>
       </section>
 
-      <section className="card card-pad">
-        <h3 style={{ marginTop: 0 }}>When a feed is down</h3>
+      <section className="panel panel-pad">
+        <div className="section-rule">
+          <span>Two feeds, converging on a price</span>
+        </div>
+        <div className="feeds" style={{ marginBottom: 12 }}>
+          <div className="feed a">
+            <h4>A · {c?.sources.a ?? "gate.io"}</h4>
+            <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>
+              Hourly spot candles. The GMT+1 window is rebuilt from candle{" "}
+              <em>open times</em> &mdash; 24 of them for a day, 168 for a week
+              &mdash; and the final candle&rsquo;s close is taken.
+            </p>
+          </div>
+          <div className="feed-join">
+            <span>must agree within</span>
+            <b>{c ? bpsAsPct(c.tolerance_bps) : "0.50%"}</b>
+            <span>or the round voids</span>
+          </div>
+          <div className="feed b">
+            <h4>B · {c?.sources.b ?? "coingecko"}</h4>
+            <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>
+              An independent price series. The sample at <em>exactly</em> the
+              closing instant is selected by timestamp, never the nearest
+              available point.
+            </p>
+          </div>
+        </div>
         <p>
-          Settling is retryable. A timeout or a rate limit produces a{" "}
-          <code>TRANSIENT</code> error, records nothing, and leaves the market in the resolve
-          queue. A malformed or incomplete window produces <code>EXTERNAL</code>. Either way the
-          contract never guesses.
-        </p>
-        <p>
-          If five days pass after the window closed and still nobody has settled it, the market
-          becomes inconclusive and refunds everyone &mdash; and on that path it makes{" "}
-          <strong>no web request at all</strong>. The contract would rather pay everybody back
-          than invent a price.
+          Note what the two feeds are for. They are not voting on an outcome
+          &mdash; a forecast needs an actual number, so they have to{" "}
+          <em>converge numerically</em>. If they sit further apart than the
+          tolerance there is no single honest price to grade against, the round
+          is void, and every entry fee comes back.
         </p>
       </section>
 
-      <section className="card card-pad">
-        <h3 style={{ marginTop: 0 }}>What is listed</h3>
-        {catalog.data?.categories.map((c) => (
-          <div key={c.key} style={{ marginBottom: 14 }}>
+      <section className="panel panel-pad">
+        <div className="section-rule">
+          <span>Why this needs GenLayer</span>
+        </div>
+        <p style={{ marginTop: 0 }}>
+          A normal smart contract cannot make an HTTP request, so someone has to
+          push the price on chain &mdash; and that someone becomes the trust
+          assumption. Breek&rsquo;s contract fetches both feeds itself, inside a
+          GenLayer <code>eq_principle.strict_eq</code> block. Every validator
+          independently fetches, derives the same midpoint, and builds one
+          canonical string. Consensus passes only if those strings match{" "}
+          <em>byte for byte</em>.
+        </p>
+        <p>
+          Once the block returns, the contract re-derives the whole result with
+          no network access: it re-binds the payload to this round and this
+          window, recomputes the gap between the feeds, and recomputes the
+          midpoint. A payload that simply asserts a price is rejected.
+        </p>
+      </section>
+
+      <section className="panel panel-pad">
+        <div className="section-rule">
+          <span>Entering</span>
+        </div>
+        <ul>
+          <li>
+            One flat fee of {c ? fmtGen(c.entry_fee_wei) : "1"} GEN, one entry
+            per wallet. Everyone buys in at the same price.
+          </li>
+          <li>
+            <strong>Revise as often as you like, free</strong>, until the window
+            opens. Only your last number is graded. Sharpening your estimate is
+            the point, so there is nothing to punish.
+          </li>
+          <li>
+            Anything invalid &mdash; wrong fee, malformed number, too late,
+            already entered &mdash; is refunded inside the same transaction
+            rather than reverting, so a fee can never be stranded.
+          </li>
+          <li>
+            Forecasts stay sealed until the round is priced, so a late entrant
+            cannot copy the field.
+          </li>
+          <li>Up to {c?.max_entries ?? 200} entrants per round.</li>
+        </ul>
+      </section>
+
+      <section className="panel panel-pad">
+        <div className="section-rule">
+          <span>GMT+1, precisely</span>
+        </div>
+        <p style={{ marginTop: 0 }}>
+          Every window is a GMT+1 calendar day or week, and GMT+1 here is a fixed{" "}
+          <code>+3600</code> second offset &mdash; no daylight saving, no timezone
+          database. Midnight GMT+1 is{" "}
+          <strong>23:00 UTC on the previous day</strong>. A weekly window runs
+          Monday 00:00 GMT+1 to the following Monday 00:00 GMT+1. Every time in
+          this interface is labelled GMT+1 for that reason.
+        </p>
+      </section>
+
+      <section className="panel panel-pad">
+        <div className="section-rule">
+          <span>What is listed</span>
+        </div>
+        {c?.categories.map((cat) => (
+          <div key={cat.key} style={{ marginBottom: 14 }}>
             <div className="row" style={{ gap: 8 }}>
-              <strong>{c.key}</strong>
-              {c.settlable ? (
-                <span className="tag tag-up">settlable</span>
+              <strong className="mono">{cat.key}</strong>
+              {cat.priceable ? (
+                <span className="chip chip-live">priceable</span>
               ) : (
-                <span className="tag tag-void">catalog only</span>
+                <span className="chip chip-void">not priceable</span>
               )}
             </div>
-            <div className="muted" style={{ fontSize: 13 }}>
-              {c.assets.join(", ")} &mdash; {c.return_basis}
+            <div className="muted" style={{ fontSize: 12.5 }}>
+              {cat.assets.join(", ")} &mdash; {cat.basis}
             </div>
-            {c.note && (
-              <div className="notice notice-warn" style={{ marginTop: 8, fontSize: 12 }}>
-                {c.note}
+            {cat.note && (
+              <div className="note note-warn" style={{ marginTop: 8, fontSize: 11.5 }}>
+                {cat.note}
               </div>
             )}
           </div>
         ))}
-        <p className="dim" style={{ fontSize: 12 }}>
-          Hourly markets are not offered. Two independent keyless feeds could not be shown to
-          reconstruct the same exact GMT+1 hour, and the two-source rule is not negotiable.
+        <p className="dim" style={{ fontSize: 11.5 }}>
+          Hourly rounds are not offered: two independent keyless feeds could not
+          be shown to reconstruct the same exact GMT+1 hour, and a round that
+          cannot be priced twice does not open.
         </p>
       </section>
 
-      <section className="card card-pad">
-        <h3 style={{ marginTop: 0 }}>This deployment</h3>
+      <section className="panel panel-pad">
+        <div className="section-rule">
+          <span>This deployment</span>
+        </div>
         <dl className="kv">
           <dt>Network</dt>
           <dd>
-            {env.network} &middot; chain {env.chainId}
+            {env.network} · chain {env.chainId}
           </dd>
           <dt>RPC</dt>
           <dd>{env.rpc}</dd>
@@ -184,28 +206,24 @@ export default function HowItWorks() {
               {env.contract}
             </a>
           </dd>
-          {catalog.data && (
+          {c && (
             <>
-              <dt>Stake band</dt>
-              <dd>
-                {Number(BigInt(catalog.data.stake.min_wei) / BigInt(catalog.data.stake.gen_wei))}
-                {" – "}
-                {Number(BigInt(catalog.data.stake.max_wei) / BigInt(catalog.data.stake.gen_wei))}{" "}
-                GEN
-              </dd>
-              <dt>Refund-all delay</dt>
-              <dd>
-                {Number(catalog.data.terminal_refund_delay_s) / 86400} days after the window
-                closes
-              </dd>
+              <dt>Entry fee</dt>
+              <dd>{fmtGen(c.entry_fee_wei)} GEN</dd>
+              <dt>Feed tolerance</dt>
+              <dd>{bpsAsPct(c.tolerance_bps)}</dd>
+              <dt>Scoring cutoff</dt>
+              <dd>{bpsAsPct(c.score_cutoff_bps, 0)}</dd>
+              <dt>Refund if unscored</dt>
+              <dd>{Number(c.expiry_delay_s) / 86400} days after the window closes</dd>
               <dt>Price scale</dt>
-              <dd>{catalog.data.price_scale} (integers only, no floats)</dd>
+              <dd>{c.price_scale} (integers only, no floats)</dd>
             </>
           )}
         </dl>
-        <p className="dim" style={{ fontSize: 12, marginTop: 12 }}>
-          The price charts and figures in this interface are display-only. They are never sent to
-          the contract and play no part in settlement.
+        <p className="dim" style={{ fontSize: 11.5, marginTop: 12 }}>
+          There is no owner, no pause, no admin scorer and no upgrade hook.{" "}
+          <code>score_round</code> takes a round id and nothing else.
         </p>
       </section>
     </div>

@@ -171,7 +171,7 @@ REL_DAILY 2026-09-24
 | Check | Status |
 |---|---|
 | `python -m pytest tests` | 188 passed |
-| `genvm-lint lint contracts/BreekMarket.py` | passed |
+| `genvm-lint lint contracts/BreekForecast.py` | passed |
 | `npx tsc --noEmit` (frontend) | clean |
 | `npm run build` (frontend) | clean |
 | Live URL reachable | 200, assets 200, SPA rewrite 200 |

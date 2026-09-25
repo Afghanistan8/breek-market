@@ -7,7 +7,7 @@ boundaries and the consensus-time parser.
 
 import pytest
 
-from tests.conftest import DAY, HOUR, WEEK, day_window, days_from_civil, iso, week_window
+from tests.conftest import DAY, HOUR, WEEK, day_window, iso
 
 
 def test_leap_years(mod):

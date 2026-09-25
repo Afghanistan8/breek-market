@@ -1,4 +1,4 @@
-"""Shared fixtures for the Breek Market test suite.
+"""Shared fixtures for the Breek test suite.
 
 Everything here runs the real contract file through ``gltest.direct``, which
 loads the actual py-genlayer runner in-process. There is no re-implementation of
@@ -16,13 +16,14 @@ import pytest
 from gltest.direct import VMContext, create_address, deploy_contract
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-CONTRACT = REPO_ROOT / "contracts" / "BreekMarket.py"
-MODULE_NAME = "_contract_BreekMarket"
+CONTRACT = REPO_ROOT / "contracts" / "BreekForecast.py"
+MODULE_NAME = "_contract_BreekForecast"
 
 DAY = 86400
 HOUR = 3600
 WEEK = 7 * DAY
 GEN = 10**18
+ENTRY_FEE = 1 * GEN
 
 
 # ---------------------------------------------------------------------------
@@ -40,23 +41,18 @@ def iso(unix: int, micros: int = 0) -> str:
 
 
 def hexaddr(addr) -> str:
-    """Lowercase 0x hex for an address, matching what the contract's views return.
-
-    ``create_address`` hands back an ``Address`` or raw 20 bytes depending on how
-    the value has travelled, so accept either.
-    """
+    """Lowercase 0x hex, matching what the contract's views return."""
     raw = addr.as_bytes if hasattr(addr, "as_bytes") else bytes(addr)
     return "0x" + raw.hex()
 
 
 def warp_to(vm: VMContext, unix: int) -> None:
-    """Set consensus time to ``unix`` seconds and make the contract see it.
+    """Set consensus time and make the contract see it.
 
-    ``VMContext.warp`` updates the VM's own datetime and refreshes ``gl.message``,
-    but gltest 0.29.2 does not copy the new datetime into the already-imported
-    ``gl.message_raw`` dict -- only sender, origin and value. The contract reads
-    its clock from ``gl.message_raw['datetime']``, so we set that too, otherwise
-    every warp would silently leave the contract frozen at deploy time.
+    ``VMContext.warp`` refreshes sender, origin and value but gltest 0.29.2 does
+    not copy the new datetime into the already-imported ``gl.message_raw``. The
+    contract reads its clock from there, so set it too -- otherwise every warp
+    silently leaves the contract frozen at deploy time.
     """
     stamp = iso(unix)
     vm.warp(stamp)
@@ -111,7 +107,6 @@ CG_SLUG = {"SOL": "solana", "ETH": "ethereum", "NEAR": "near"}
 def gate_body(
     window_start: int,
     window_end: int,
-    open_px: str,
     close_px: str,
     *,
     all_closed: bool = True,
@@ -122,9 +117,8 @@ def gate_body(
     """Build a Gate.io hourly candlestick array.
 
     Row layout mirrors the live feed: ``[ts, quote_vol, close, high, low, open,
-    base_vol, closed_flag]``. Only the first candle's open and the last candle's
-    close matter to the contract; the filler values in between exist to prove
-    the parser selects by timestamp rather than by position.
+    base_vol, closed_flag]``. Only the LAST candle's close matters here; the
+    filler values prove the parser selects by timestamp, not by position.
     """
     n = (window_end - window_start) // HOUR
     rows = []
@@ -132,7 +126,6 @@ def gate_body(
         ts = window_start + i * HOUR
         if drop_hour is not None and i == drop_hour:
             continue
-        o = open_px if i == 0 else "50.00000000"
         c = close_px if i == n - 1 else "50.00000000"
         rows.append(
             [
@@ -141,7 +134,7 @@ def gate_body(
                 c,
                 "999999.0",
                 "0.00000001",
-                o,
+                "50.00000000",
                 "1000.0",
                 "true" if all_closed else ("false" if i == n - 1 else "true"),
             ]
@@ -154,67 +147,53 @@ def gate_body(
 def cg_body(
     window_start: int,
     window_end: int,
-    open_px: str,
     close_px: str,
     *,
-    omit_start: bool = False,
     omit_end: bool = False,
     numeric: bool = False,
 ) -> str:
     """Build a CoinGecko market_chart/range document.
 
     The contract asks for the window padded by an hour either side, so the
-    series here spans ``window_start - HOUR`` to ``window_end + HOUR`` and the
-    boundary instants are interior points.
+    closing instant is an interior point of this series.
     """
     prices = []
     ts = window_start - HOUR
     while ts <= window_end + HOUR:
-        if ts == window_start:
-            if not omit_start:
-                prices.append([ts * 1000, _num(open_px, numeric)])
-        elif ts == window_end:
+        if ts == window_end:
             if not omit_end:
                 prices.append([ts * 1000, _num(close_px, numeric)])
         else:
             prices.append([ts * 1000, _num("50.5", numeric)])
         ts += HOUR
-    return json.dumps(
-        {"prices": prices, "market_caps": [], "total_volumes": []}
-    )
+    return json.dumps({"prices": prices, "market_caps": [], "total_volumes": []})
 
 
 def _num(text: str, numeric: bool):
-    """Emit the price as a JSON number (default) or as an integer."""
     if numeric:
         return int(float(text))
     return float(text)
 
 
-def mock_asset(
+def mock_feeds(
     vm: VMContext,
     symbol: str,
     window_start: int,
     window_end: int,
     *,
-    a_open: str,
     a_close: str,
-    b_open: str | None = None,
     b_close: str | None = None,
     gate_kwargs: dict | None = None,
     cg_kwargs: dict | None = None,
 ) -> None:
-    """Mock both settlement sources for one asset over one window."""
-    b_open = a_open if b_open is None else b_open
+    """Mock both pricing sources for one asset over one window."""
     b_close = a_close if b_close is None else b_close
     vm.mock_web(
         GATE_URL_RE % symbol,
         {
             "method": "GET",
             "status": 200,
-            "body": gate_body(
-                window_start, window_end, a_open, a_close, **(gate_kwargs or {})
-            ),
+            "body": gate_body(window_start, window_end, a_close, **(gate_kwargs or {})),
         },
     )
     vm.mock_web(
@@ -222,9 +201,7 @@ def mock_asset(
         {
             "method": "GET",
             "status": 200,
-            "body": cg_body(
-                window_start, window_end, b_open, b_close, **(cg_kwargs or {})
-            ),
+            "body": cg_body(window_start, window_end, b_close, **(cg_kwargs or {})),
         },
     )
 
@@ -232,48 +209,34 @@ def mock_asset(
 # ---------------------------------------------------------------------------
 # Equivalence-principle helpers
 # ---------------------------------------------------------------------------
-# gl.eq_principle.strict_eq votes AGREE exactly when a validator's own run of the
-# non-deterministic block returns a value equal to the leader's. Its real
-# validator path goes through gl.vm.spawn_sandbox, which gltest 0.29.2 does not
-# implement in direct mode (it returns an undecodable result code), so we drive
-# the captured leader closure ourselves and apply the same equality rule. The
-# closure is the contract's own settle block, so nothing about the settlement
-# logic is stubbed -- only the sandbox plumbing around it.
+# gl.eq_principle.strict_eq votes AGREE exactly when a validator's own run of
+# the non-deterministic block equals the leader's. Its real validator path uses
+# gl.vm.spawn_sandbox, which gltest 0.29.2 does not implement in direct mode, so
+# we drive the captured leader closure and apply the same equality rule. The
+# closure is the contract's own pricing block; only the sandbox plumbing is
+# bypassed.
 
 LEADER_ERRORED = object()
 
 
 def leader_payload(vm: VMContext) -> str:
-    """The payload the leader produced in the most recent resolve."""
     stored, _leader_fn, _validator_fn = vm._captured_validators[-1]
     return stored
 
 
 def validator_payload(vm: VMContext) -> str:
-    """Re-run the non-deterministic block as an independent validator would.
-
-    Whatever web mocks are registered right now stand in for that validator's own
-    view of the world.
-    """
     _stored, leader_fn, _validator_fn = vm._captured_validators[-1]
     return leader_fn()
 
 
 def strict_eq_agrees(vm: VMContext, leader_result=None) -> bool:
-    """Would a validator vote AGREE on this round?
-
-    Pass ``leader_result`` to test a leader that reported something other than
-    what an honest fetch produces, or ``LEADER_ERRORED`` for a leader that failed.
-    """
     stored, leader_fn, _validator_fn = vm._captured_validators[-1]
     leader = stored if leader_result is None else leader_result
     try:
         mine = leader_fn()
     except Exception:
-        # Our own fetch failed. We cannot confirm the leader either way.
         return leader is LEADER_ERRORED
     if leader is LEADER_ERRORED:
-        # The leader errored but we succeeded: vote against.
         return False
     return mine == leader
 
@@ -304,11 +267,16 @@ def carol():
 
 
 @pytest.fixture
+def dave():
+    return create_address("breek-dave")
+
+
+@pytest.fixture
 def breek(vm, alice):
     """Deploy the contract and yield ``(contract, module)`` inside an active VM.
 
     The module is handed back so tests can exercise the contract's own pure
-    helpers -- calendar maths, decimal scaling, verdicts -- rather than a copy.
+    helpers -- calendar maths, scaling, scoring -- rather than a copy.
     """
     vm.sender = alice
     vm.origin = alice

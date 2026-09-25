@@ -23,16 +23,19 @@ python scripts/check_sources.py --json docs/source-probe.json
 | `WEEK` | `604800` | |
 | `GMT_PLUS_ONE` | `3600` | Fixed offset. No DST, no tz database. |
 | `GEN` | `10**18` | wei per GEN |
-| `MIN_STAKE` | `2 * GEN` | |
-| `MAX_STAKE` | `4 * GEN` | |
+| `ENTRY_FEE` | `1 * GEN` | flat, identical for every entrant |
+| `MAX_ENTRIES` | `200` | bounds the single grading pass |
+| `TOLERANCE_BPS` | `50` | the two feeds must converge within this |
+| `SCORE_CUTOFF_BPS` | `1000` | a forecast this far off scores zero |
 | `MAX_FORWARD_DAYS` | `366` | |
-| `TERMINAL_REFUND_DELAY` | `5 * DAY` | |
+| `EXPIRY_DELAY` | `5 * DAY` | |
 | `MAX_PAGE` | `50` | |
 | `MAX_SOURCE_BYTES` | `60000` | Largest observed body is 17 676 B (weekly CoinGecko). |
 | `PRICE_SCALE` | `10**8` | |
 | `BPS_SCALE` | `10000` | |
 
-No constant was changed from the brief.
+The staking band was replaced by a flat entry fee when the product became a
+scoring contest rather than a market; see section 12.
 
 ---
 
@@ -235,40 +238,26 @@ A 429 at settle time is not a failure mode that loses money: it reverts with
 
 ## 6. Consensus payload
 
-One canonical pipe-delimited string, 13 fields:
+One canonical pipe-delimited string, 11 fields:
 
 ```
-v1|kind|category|asset|timeframe|source_a|source_b|window_id|A_SERIES|a_verdict|B_SERIES|b_verdict|final
+f1|category|asset|timeframe|window_id|source_a|source_b|a_close|b_close|gap_bps|settled
 ```
 
-`SERIES` is comma-joined `SYMBOL:open:close`, in catalog order, with prices
-rendered from `PRICE_SCALE` integers. One entry for `DIR_*`, all catalog entries
-for `REL_*`. A real example, verbatim from a settled market:
+A real example, verbatim from a round graded against live data:
 
 ```
-v1|DIR_DAILY|CRYPTO|SOL|DAILY|gate.io|coingecko|2026-09-24|SOL:115.15000000:116.61000000|UP|SOL:115.09859487:116.55383196|UP|UP
+f1|CRYPTO|SOL|DAILY|2026-09-24|gate.io|coingecko|116.61000000|116.55383196|4|116.58191598
 ```
 
 After `strict_eq` returns, `_parse_agreed` re-validates with **no network
-access**:
+access**: field count and version; category and asset bind to this round;
+timeframe and window id bind to this window; both feeds are the expected two;
+both closes positive; the gap recomputed from the closes matches; and either the
+gap exceeds tolerance and the payload says `VOID_SPREAD`, or the settled price
+equals the recomputed midpoint.
 
-1. field count and version;
-2. `kind`, `category`, `asset` bind to this market;
-3. `timeframe` and `window_id` bind to this window;
-4. `source_a` and `source_b` are the two expected feeds (naming one feed twice
-   is rejected);
-5. series length and symbols match the catalog in order;
-6. every open and close is a positive integer;
-7. `a_verdict` recomputed from `A_SERIES` matches;
-8. `b_verdict` recomputed from `B_SERIES` matches;
-9. `final` recomputed from the two verdicts matches;
-10. a settled result is `UP`, `DOWN`, or a catalog symbol.
-
-Any failure raises `INVARIANT:` and reverts. The payload is then persisted as the
-market's evidence and surfaced in the UI.
-
-`tests/direct/test_payload.py` attacks each of these in turn — forged verdicts,
-forged winners, replayed windows, off-catalog winners, ties promoted to wins.
+Any failure raises `INVARIANT:` and reverts.
 
 ### Decimal normalisation
 
@@ -276,9 +265,9 @@ Prices are parsed as **strings** and converted with `_dec_to_scaled`, so
 `80494.31000000` and `80494.31` land on the same integer. CoinGecko returns JSON
 numbers, so its body is decoded with `json.loads(text, parse_float=str)` —
 keeping the exact decimal text and ensuring **no IEEE-754 value ever touches a
-price**. Excess precision truncates, never rounds, because rounding could flip a
-verdict. Exponent notation is rejected outright rather than risking a
-mis-scaled price.
+price**. Excess precision truncates, never rounds. Exponent notation is rejected
+outright rather than risking a mis-scaled price.
+
 
 ---
 
@@ -384,17 +373,15 @@ Build completed successfully.
 
 ---
 
-## 10. Deviation: `create_market` cross-checks `timeframe` against `kind`
+## 10. `open_round` takes no kind
 
-The brief fixes the signature as
-`create_market(kind, category, asset, timeframe, window_id)` while also defining
-`kind` as the composite `DIR_DAILY` / `REL_WEEKLY` / …, which makes `timeframe`
-redundant.
+The old `create_market(kind, category, asset, timeframe, window_id)` carried
+both a composite `kind` (`DIR_DAILY`, `REL_WEEKLY`, ...) and a redundant
+`timeframe`, which had to be cross-checked against each other.
 
-Rather than ignore the argument, Breek requires it to agree:
-`kind.endswith("_" + timeframe)` or `EXPECTED:KIND_TIMEFRAME_MISMATCH`. The
-signature is unchanged and a caller who disagrees with themselves is rejected
-rather than silently overridden.
+With sides gone there is no kind to carry. `open_round(category, asset,
+timeframe, window_id)` names the thing being forecast and the window it closes
+in, and nothing else. A round is fully described by those four values.
 
 ---
 
@@ -406,9 +393,56 @@ claimable and not swept, because a sweep needs a privileged address and Breek
 has none. `test_payouts_never_exceed_the_pool` pins that payouts can never
 exceed the pool.
 
-## 12. Settled, but nobody won
+## 12. Scored, but nobody was close
 
-If a market settles to a side that nobody staked, the pool would have no
-claimant. Rather than strand it, `claim` refunds every wallet its own stake
-(`REFUND_NO_WINNERS`). This is an addition to the brief; the alternative was
-permanently locked GEN.
+If every entrant lands outside the scoring band, no accuracy earned the pot.
+Rather than hand it out anyway or strand it, the round becomes
+`VOID_NO_SCORES` and each entrant collects their own fee back.
+
+An **empty** round is deliberately not this case: it prices normally and records
+the settled value, there is simply nobody to pay. Conflating the two would have
+marked every uncontested round void and thrown away a perfectly good price.
+
+---
+
+## 13. Change of mechanics: market -> scoring contest
+
+Breek began as a prediction market: pick a side, pari-mutuel pool, two feeds
+voting on a verdict. That shape was replaced deliberately.
+
+**Why.** The mechanics were not distinctive. Permissionless creation and
+resolution, pari-mutuel staking, multi-source settlement, direction and
+relative-performance markets, inconclusive refunds and a terminal fallback are
+the standard vocabulary of the genre, and re-combining them with different
+assets, feeds or timeframes is implementation work rather than a different
+product.
+
+**What changed, and what it replaced.**
+
+| Old mechanic | Replaced by |
+|---|---|
+| Pick `UP`/`DOWN`, or an asset from a field | Submit a **point forecast** — a price |
+| Pari-mutuel: the winning side splits the pool | **Accuracy weighting**: every entrant inside the band takes a share proportional to how close they were |
+| Two feeds each derive a verdict; verdicts must match | Two feeds each report a **price**; they must **converge within 50 bp**, and the midpoint is the settled value |
+| Stake 2–4 GEN, side locked once taken | **Flat 1 GEN** entry, forecast **revisable free** until the window opens |
+| Binary outcome: win everything or nothing | **Graded outcome**: linear decay from a perfect call to zero at a 10% cutoff |
+
+Two consequences worth recording:
+
+1. **There is no winning side, so there is no pool to split.** A payout is a
+   share of total accuracy. This is the substantive difference: being slightly
+   wrong is strictly better than being badly wrong, whereas in a market both are
+   simply "wrong".
+2. **The feeds converge instead of voting.** A forecast has to be graded against
+   an actual number, so two sources agreeing on a direction is useless. The
+   consensus is numeric, with a tolerance band, and beyond it the round voids.
+
+**What did not change,** because changing it would have made the product worse:
+permissionless opening and scoring (adding an admin to look different is a
+downgrade), the refusal to price from one feed, the GMT+1 window arithmetic, the
+integer-only money path, and the expiry refund that guarantees no fee is ever
+stranded.
+
+Prior deployment, superseded:
+`0xC69eDF8Cd4d723002d1d658CAB3AD616A34532d7` (BreekMarket).
+Current: `0x2b5cF7247380d9B487758f27A2A5e1FFA7d821f7` (BreekForecast).

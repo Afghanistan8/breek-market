@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Breek Market -- live settlement-source probe.
+Breek -- live pricing-source probe.
 
-This script is the gate that must pass before ``resolve_market`` parsers are
+This script is the gate that must pass before ``score_round`` parsers are
 trusted. It talks to the real public endpoints Breek settles against and proves,
 for every market kind we intend to ship, that TWO INDEPENDENT sources can each
 reconstruct THE SAME TWO GMT+1 INSTANTS from their own bytes:
@@ -36,7 +36,7 @@ import urllib.request
 from typing import Any
 
 # ---------------------------------------------------------------------------
-# Constants mirrored from contracts/BreekMarket.py. Keep these in lockstep.
+# Constants mirrored from contracts/BreekForecast.py. Keep these in lockstep.
 # ---------------------------------------------------------------------------
 
 DAY = 86400
@@ -483,7 +483,7 @@ def main() -> int:
     day = args.day or last_closed_day(now)
     week = args.week or last_closed_week(now)
 
-    print("Breek Market -- settlement source probe")
+    print("Breek -- pricing source probe")
     print("probed at %d (%s)" % (now, fmt_ts(now)))
     print("source A: gate.io   hourly spot candlesticks (keyless)")
     print("source B: coingecko market_chart/range spot samples (keyless)")

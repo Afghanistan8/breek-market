@@ -6,7 +6,7 @@
  * never shows a bare local time for a window boundary, because "midnight" in
  * the viewer's own zone is almost never the instant the candle opens.
  *
- * These helpers mirror contracts/BreekMarket.py exactly. If one changes, both
+ * These helpers mirror contracts/BreekForecast.py exactly. If one changes, both
  * change.
  */
 

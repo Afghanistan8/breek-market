@@ -19,91 +19,111 @@ export const GEN = 1_000_000_000_000_000_000n;
 // decimal string so nothing is lost to JavaScript numbers.
 // ---------------------------------------------------------------------------
 
-export type Phase =
-  | "OPEN"
-  | "WINDOW_LIVE"
-  | "READY_TO_SETTLE"
-  | "SETTLED_UP"
-  | "SETTLED_DOWN"
-  | "SETTLED_WINNER"
-  | "INCONCLUSIVE";
+export type Phase = "ACCEPTING" | "LOCKED" | "AWAITING_SCORE" | "SCORED" | "VOID";
 
-export interface Market {
-  market_id: string;
-  kind: "DIR_DAILY" | "DIR_WEEKLY" | "REL_DAILY" | "REL_WEEKLY";
+export type RoundStatus =
+  | ""
+  | "SCORED"
+  | "VOID_SPREAD"
+  | "VOID_EXPIRED"
+  | "VOID_NO_SCORES";
+
+export interface Round {
+  round_id: string;
   category: string;
   asset: string;
   timeframe: "DAILY" | "WEEKLY";
   window_id: string;
   window_start: string;
   window_end: string;
-  cutoff_at: string;
-  settles_at: string;
-  terminal_refund_at: string;
-  creator: string;
-  created_at: string;
-  pool_wei: string;
-  stakers: string;
-  settled: boolean;
-  outcome: string;
-  settled_at: string;
+  locks_at: string;
+  scoreable_at: string;
+  expires_at: string;
+  opener: string;
+  opened_at: string;
+  pot_wei: string;
+  entrants: string;
+  status: RoundStatus;
+  consensus: string;
+  total_weight: string;
+  scored_at: string;
   phase: Phase;
-  sides: Record<string, string>;
-  valid_sides: string[];
-  seconds_to_cutoff: string;
-  seconds_to_settle: string;
+  entry_fee_wei: string;
+  seconds_to_lock: string;
+  seconds_to_score: string;
 }
 
-export interface Position {
-  market_id: string;
+export interface Entry {
+  round_id: string;
   who: string;
-  has_position: boolean;
-  side: string;
-  amount_wei: string;
-  claimed: boolean;
-  claimable_wei: string;
-  claim_kind: "" | "PAYOUT" | "LOST" | "REFUND_INCONCLUSIVE" | "REFUND_NO_WINNERS";
+  entered: boolean;
+  forecast: string;
+  revisions: string;
+  collected: boolean;
+  error_bps: string;
+  weight: string;
+  collectable_wei: string;
+  outcome: string;
+}
+
+export interface LeaderboardRow {
+  who: string;
+  revisions: string;
+  collected: boolean;
+  forecast: string;
+  error_bps: string;
+  weight: string;
+  share_wei: string;
+}
+
+export interface Leaderboard {
+  round_id: string;
+  status: RoundStatus;
+  consensus: string;
+  entries: LeaderboardRow[];
 }
 
 export interface Evidence {
-  market_id: string;
-  settled: boolean;
-  outcome: string;
-  settled_at: string;
+  round_id: string;
+  status: RoundStatus;
+  scored_at: string;
   payload: string;
   source_a: string;
   source_b: string;
-  a_series?: string;
-  a_verdict?: string;
-  b_series?: string;
-  b_verdict?: string;
-  final?: string;
+  tolerance_bps: string;
+  a_close?: string;
+  b_close?: string;
+  spread_bps?: string;
+  consensus?: string;
 }
 
 export interface CategoryInfo {
   key: string;
   assets: string[];
-  settlable: boolean;
-  return_basis: string;
+  priceable: boolean;
+  basis: string;
   note: string;
 }
 
 export interface Catalog {
-  kinds: string[];
   timeframes: string[];
   categories: CategoryInfo[];
-  stake: { min_wei: string; max_wei: string; gen_wei: string };
+  entry_fee_wei: string;
+  gen_wei: string;
+  tolerance_bps: string;
+  score_cutoff_bps: string;
+  max_entries: string;
   sources: { a: string; b: string };
   timezone: string;
   price_scale: string;
-  terminal_refund_delay_s: string;
+  expiry_delay_s: string;
 }
 
 export interface Stats {
-  markets: string;
-  settled: string;
-  inconclusive: string;
-  total_staked_wei: string;
+  rounds: string;
+  scored: string;
+  void: string;
+  entries: string;
   total_paid_wei: string;
   contract_balance_wei: string;
   now: string;
@@ -116,7 +136,7 @@ export interface Stats {
 /**
  * The chain definition, with the RPC forced to the configured one.
  *
- * The SDK ships its own URL for each named chain. If that ever diverges from
+ * The SDK ships its own URL for each named chain. If that diverges from
  * VITE_BREEK_RPC the app would silently read and write against a different node
  * than the one it advertises, so the configured endpoint always wins.
  */
@@ -151,9 +171,9 @@ export const getReadClient = () => {
 /**
  * A client bound to a specific wallet.
  *
- * Both `account` and `provider` matter: without the provider the SDK has no
- * EIP-1193 channel and cannot prompt the wallet at all, which is why an earlier
- * version of this app appeared to do nothing when you pressed Connect.
+ * Both `account` and `provider` matter. genlayer-js delegates
+ * `eth_sendTransaction` to the provider, so without it there is no EIP-1193
+ * channel and the wallet can never be prompted.
  */
 export const makeClient = (account?: string, provider?: unknown) =>
   createClient({
@@ -168,18 +188,15 @@ export const makeClient = (account?: string, provider?: unknown) =>
 // ---------------------------------------------------------------------------
 
 /**
- * gen_call requires a `from` address even for a read. None of Breek's views
- * depend on who is asking -- `get_position` and `list_positions` take the
- * address they are about as an explicit argument -- so reads are made from the
- * zero address rather than requiring a connected wallet to browse the app.
+ * gen_call requires a `from` address even for a read. No view depends on who is
+ * asking -- `get_entry` and `list_entries` take the address as an argument -- so
+ * reads come from the zero address rather than requiring a wallet to browse.
  */
 const READ_FROM = { address: "0x0000000000000000000000000000000000000000" };
 
 /**
  * GenLayer calldata decodes a contract dict into a `Map`, not a plain object.
- * Components want plain objects, so normalise once here -- recursively, because
- * views nest dicts inside lists (a market's `sides`, a portfolio row's
- * `market`/`position`).
+ * Normalise once, recursively, because views nest dicts inside lists.
  */
 const plain = (value: unknown): unknown => {
   if (value instanceof Map) {
@@ -204,25 +221,27 @@ const read = async <T>(functionName: string, args: unknown[] = []): Promise<T> =
 
 export const getCatalog = () => read<Catalog>("get_catalog");
 export const getStats = () => read<Stats>("get_stats");
-export const getMarket = (id: number) => read<Market>("get_market", [id]);
+export const getRound = (id: number) => read<Round>("get_round", [id]);
 export const getEvidence = (id: number) => read<Evidence>("get_evidence", [id]);
 export const getPhase = (id: number) => read<Phase>("get_phase", [id]);
 
-export const listMarkets = (offset = 0, limit = 50) =>
-  read<{ total: string; offset: string; limit: string; now: string; markets: Market[] }>(
-    "list_markets",
+export const getLeaderboard = (id: number, limit = 50) =>
+  read<Leaderboard>("get_leaderboard", [id, limit]);
+
+export const listRounds = (offset = 0, limit = 50) =>
+  read<{ total: string; offset: string; limit: string; now: string; rounds: Round[] }>(
+    "list_rounds",
     [offset, limit],
   );
 
-export const listResolvable = (limit = 50) =>
-  read<{ now: string; markets: Market[] }>("list_resolvable", [limit]);
+export const listScoreable = (limit = 50) =>
+  read<{ now: string; rounds: Round[] }>("list_scoreable", [limit]);
 
-export const getPosition = (id: number, who: string) =>
-  read<Position>("get_position", [id, who]);
+export const getEntry = (id: number, who: string) => read<Entry>("get_entry", [id, who]);
 
-export const listPositions = (who: string, limit = 50) =>
-  read<{ who: string; now: string; positions: { market: Market; position: Position }[] }>(
-    "list_positions",
+export const listEntries = (who: string, limit = 50) =>
+  read<{ who: string; now: string; entries: { round: Round; entry: Entry }[] }>(
+    "list_entries",
     [who, limit],
   );
 
@@ -240,10 +259,9 @@ export class WriteUnsupportedError extends Error {
 /**
  * Refuse to send a transaction this network cannot execute.
  *
- * genlayer-js derives a fee deposit from the network's fee API before it can
- * sign. If that path is missing on the connected network, sending anyway burns a
- * signature and surfaces an opaque RPC error, so fail here with something a
- * person can act on.
+ * Without the consensus contract configuration genlayer-js throws "Consensus
+ * main contract address not found" from inside the send, after the wallet has
+ * already been prompted. Fail here instead, with something a person can act on.
  */
 export const preflight = async (client: ReturnType<typeof createClient>): Promise<void> => {
   try {
@@ -288,8 +306,7 @@ const summarise = (receipt: unknown): { status: string; returned?: string; error
  *
  * genlayer-js 1.1.8 -- the version the genlayer CLI bundles and writes to
  * studionet with -- exposes no fee estimation, and writes succeed without one.
- * Newer builds document `estimateTransactionFeesForWrite`. Feature-detect it
- * exactly as the CLI does rather than depending on either shape.
+ * Feature-detect exactly as the CLI does rather than depending on either shape.
  */
 const feesFor = async (
   client: ReturnType<typeof createClient>,
@@ -328,8 +345,6 @@ const send = async (
   };
   const fees = await feesFor(client, { ...write, args });
   const hash = await client.writeContract({ ...write, ...(fees ?? {}) } as never);
-  // writeContract hands back the hash already in the branded shape
-  // waitForTransactionReceipt wants, so pass it straight through.
   type WaitArgs = Parameters<typeof client.waitForTransactionReceipt>[0];
   const receipt = await client.waitForTransactionReceipt({
     hash: hash as WaitArgs["hash"],
@@ -340,24 +355,29 @@ const send = async (
   return { hash: String(hash), ...summarise(receipt) };
 };
 
-export const createMarket = (
+export const openRound = (
   client: ReturnType<typeof createClient>,
-  kind: string,
   category: string,
   asset: string,
   timeframe: string,
   windowId: string,
-) => send(client, "create_market", [kind, category, asset, timeframe, windowId], 0n);
+) => send(client, "open_round", [category, asset, timeframe, windowId], 0n);
 
-export const takePosition = (
+export const submitForecast = (
   client: ReturnType<typeof createClient>,
-  marketId: number,
-  side: string,
-  gen: number,
-) => send(client, "take_position", [marketId, side], BigInt(gen) * GEN);
+  roundId: number,
+  forecast: string,
+  feeWei: bigint,
+) => send(client, "submit_forecast", [roundId, forecast], feeWei);
 
-export const resolveMarket = (client: ReturnType<typeof createClient>, marketId: number) =>
-  send(client, "resolve_market", [marketId], 0n);
+export const reviseForecast = (
+  client: ReturnType<typeof createClient>,
+  roundId: number,
+  forecast: string,
+) => send(client, "revise_forecast", [roundId, forecast], 0n);
 
-export const claim = (client: ReturnType<typeof createClient>, marketId: number) =>
-  send(client, "claim", [marketId], 0n);
+export const scoreRound = (client: ReturnType<typeof createClient>, roundId: number) =>
+  send(client, "score_round", [roundId], 0n);
+
+export const collect = (client: ReturnType<typeof createClient>, roundId: number) =>
+  send(client, "collect", [roundId], 0n);

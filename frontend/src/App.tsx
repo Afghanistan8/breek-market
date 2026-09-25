@@ -4,30 +4,28 @@ import { ConnectButton } from "./components/ConnectButton";
 import { WalletPicker } from "./components/WalletPicker";
 import { WalletBanner } from "./components/WriteGate";
 import { env, contractConfigured } from "./lib/env";
-import Create from "./pages/Create";
-import Home from "./pages/Home";
+import Board from "./pages/Board";
 import HowItWorks from "./pages/HowItWorks";
-import MarketDetail from "./pages/MarketDetail";
-import Portfolio from "./pages/Portfolio";
-import ResolveQueue from "./pages/ResolveQueue";
+import MyForecasts from "./pages/MyForecasts";
+import OpenRound from "./pages/OpenRound";
+import RoundDetail from "./pages/RoundDetail";
+import ScoreQueue from "./pages/ScoreQueue";
 
 const NAV = [
-  { to: "/", label: "Markets", end: true },
-  { to: "/create", label: "Create" },
-  { to: "/resolve", label: "Resolve queue" },
-  { to: "/portfolio", label: "Portfolio" },
-  { to: "/how", label: "How it works" },
+  { to: "/", label: "Board", end: true },
+  { to: "/open", label: "Open a round" },
+  { to: "/score", label: "Score queue" },
+  { to: "/me", label: "Your forecasts" },
+  { to: "/how", label: "Scoring rule" },
 ];
 
 export default function App() {
   return (
     <div className="shell">
       <header className="topbar">
-        <NavLink to="/" className="brand" aria-label="Breek Market home">
-          <span className="brand-mark" aria-hidden="true">
-            B
-          </span>
-          Breek
+        <NavLink to="/" className="brand" aria-label="Breek home">
+          breek<em>·</em>
+          <small>forecast contest</small>
         </NavLink>
 
         <nav className="nav" aria-label="Main">
@@ -40,7 +38,7 @@ export default function App() {
 
         <div className="topbar-right">
           <span className="net-pill" title={env.rpc}>
-            {env.network} · {env.chainId}
+            {env.network}/{env.chainId}
           </span>
           <ConnectButton />
         </div>
@@ -52,27 +50,28 @@ export default function App() {
         <WalletBanner />
 
         {!contractConfigured && (
-          <div className="notice notice-bad" style={{ marginBottom: 18 }}>
-            <strong>No contract configured.</strong> Set <code>VITE_BREEK_CONTRACT</code> to a
-            deployed BreekMarket address and reload. Nothing on this page can load until then.
+          <div className="note note-bad" style={{ marginBottom: 18 }}>
+            <strong>No contract configured.</strong> Set{" "}
+            <code>VITE_BREEK_CONTRACT</code> to a deployed BreekForecast address
+            and reload.
           </div>
         )}
 
         <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/market/:id" element={<MarketDetail />} />
-          <Route path="/create" element={<Create />} />
-          <Route path="/resolve" element={<ResolveQueue />} />
-          <Route path="/portfolio" element={<Portfolio />} />
+          <Route path="/" element={<Board />} />
+          <Route path="/round/:id" element={<RoundDetail />} />
+          <Route path="/open" element={<OpenRound />} />
+          <Route path="/score" element={<ScoreQueue />} />
+          <Route path="/me" element={<MyForecasts />} />
           <Route path="/how" element={<HowItWorks />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
 
       <footer className="foot">
-        Breek Market — permissionless GMT+1 prediction markets on GenLayer. Every market
-        settles from two independent public feeds fetched by the contract itself. No owner, no
-        admin resolve, no oracle.
+        Breek &mdash; a forecast accuracy contest on GenLayer. Name a price, get
+        graded against two independent feeds the contract fetches itself. No
+        sides, no owner, no admin scorer.
       </footer>
     </div>
   );

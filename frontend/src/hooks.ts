@@ -4,18 +4,20 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
 import {
-  claim,
-  createMarket,
+  collect,
   getCatalog,
+  getEntry,
   getEvidence,
-  getMarket,
-  getPosition,
+  getLeaderboard,
+  getRound,
   getStats,
-  listMarkets,
-  listPositions,
-  listResolvable,
-  resolveMarket,
-  takePosition,
+  listEntries,
+  listRounds,
+  listScoreable,
+  openRound,
+  reviseForecast,
+  scoreRound,
+  submitForecast,
   type WriteResult,
 } from "./lib/breek";
 import { contractConfigured } from "./lib/env";
@@ -29,51 +31,59 @@ export const useCatalog = () =>
 export const useStats = () =>
   useQuery({ queryKey: ["stats"], queryFn: getStats, refetchInterval: 20_000, ...enabled });
 
-export const useMarkets = (offset = 0, limit = 50) =>
+export const useRounds = (offset = 0, limit = 50) =>
   useQuery({
-    queryKey: ["markets", offset, limit],
-    queryFn: () => listMarkets(offset, limit),
+    queryKey: ["rounds", offset, limit],
+    queryFn: () => listRounds(offset, limit),
     refetchInterval: 20_000,
     ...enabled,
   });
 
-export const useMarket = (id: number) =>
+export const useRound = (id: number) =>
   useQuery({
-    queryKey: ["market", id],
-    queryFn: () => getMarket(id),
+    queryKey: ["round", id],
+    queryFn: () => getRound(id),
     refetchInterval: 15_000,
     enabled: contractConfigured && Number.isFinite(id) && id > 0,
   });
 
-export const useEvidence = (id: number, settled: boolean) =>
+export const useLeaderboard = (id: number) =>
+  useQuery({
+    queryKey: ["leaderboard", id],
+    queryFn: () => getLeaderboard(id, 50),
+    refetchInterval: 20_000,
+    enabled: contractConfigured && id > 0,
+  });
+
+export const useEvidence = (id: number, scored: boolean) =>
   useQuery({
     queryKey: ["evidence", id],
     queryFn: () => getEvidence(id),
-    enabled: contractConfigured && settled && id > 0,
+    enabled: contractConfigured && scored && id > 0,
   });
 
-export const useResolvable = () =>
+export const useScoreable = () =>
   useQuery({
-    queryKey: ["resolvable"],
-    queryFn: () => listResolvable(50),
+    queryKey: ["scoreable"],
+    queryFn: () => listScoreable(50),
     refetchInterval: 15_000,
     ...enabled,
   });
 
-export const usePosition = (id: number) => {
+export const useEntry = (id: number) => {
   const { address } = useWallet();
   return useQuery({
-    queryKey: ["position", id, address],
-    queryFn: () => getPosition(id, address as string),
+    queryKey: ["entry", id, address],
+    queryFn: () => getEntry(id, address as string),
     enabled: contractConfigured && Boolean(address) && id > 0,
   });
 };
 
-export const usePortfolio = () => {
+export const useMyEntries = () => {
   const { address } = useWallet();
   return useQuery({
-    queryKey: ["portfolio", address],
-    queryFn: () => listPositions(address as string, 50),
+    queryKey: ["myEntries", address],
+    queryFn: () => listEntries(address as string, 50),
     refetchInterval: 25_000,
     enabled: contractConfigured && Boolean(address),
   });
@@ -102,62 +112,64 @@ const useRequireClient = () => {
 };
 
 const invalidateAll = (qc: ReturnType<typeof useQueryClient>) => {
-  void qc.invalidateQueries({ queryKey: ["markets"] });
-  void qc.invalidateQueries({ queryKey: ["market"] });
-  void qc.invalidateQueries({ queryKey: ["resolvable"] });
-  void qc.invalidateQueries({ queryKey: ["portfolio"] });
-  void qc.invalidateQueries({ queryKey: ["position"] });
-  void qc.invalidateQueries({ queryKey: ["stats"] });
-  void qc.invalidateQueries({ queryKey: ["evidence"] });
+  for (const key of ["rounds", "round", "scoreable", "myEntries", "entry", "stats", "evidence", "leaderboard"]) {
+    void qc.invalidateQueries({ queryKey: [key] });
+  }
 };
 
-export const useCreateMarket = () => {
+export const useOpenRound = () => {
   const requireClient = useRequireClient();
   const qc = useQueryClient();
   return useMutation<WriteResult, Error, {
-    kind: string;
     category: string;
     asset: string;
     timeframe: string;
     windowId: string;
   }>({
-    mutationFn: (input) =>
-      createMarket(
-        requireClient(),
-        input.kind,
-        input.category,
-        input.asset,
-        input.timeframe,
-        input.windowId,
-      ),
+    mutationFn: (i) =>
+      openRound(requireClient(), i.category, i.asset, i.timeframe, i.windowId),
     onSuccess: () => invalidateAll(qc),
   });
 };
 
-export const useTakePosition = () => {
+export const useSubmitForecast = () => {
   const requireClient = useRequireClient();
   const qc = useQueryClient();
-  return useMutation<WriteResult, Error, { marketId: number; side: string; gen: number }>({
-    mutationFn: ({ marketId, side, gen }) =>
-      takePosition(requireClient(), marketId, side, gen),
+  return useMutation<WriteResult, Error, {
+    roundId: number;
+    forecast: string;
+    feeWei: bigint;
+  }>({
+    mutationFn: ({ roundId, forecast, feeWei }) =>
+      submitForecast(requireClient(), roundId, forecast, feeWei),
     onSuccess: () => invalidateAll(qc),
   });
 };
 
-export const useResolveMarket = () => {
+export const useReviseForecast = () => {
+  const requireClient = useRequireClient();
+  const qc = useQueryClient();
+  return useMutation<WriteResult, Error, { roundId: number; forecast: string }>({
+    mutationFn: ({ roundId, forecast }) =>
+      reviseForecast(requireClient(), roundId, forecast),
+    onSuccess: () => invalidateAll(qc),
+  });
+};
+
+export const useScoreRound = () => {
   const requireClient = useRequireClient();
   const qc = useQueryClient();
   return useMutation<WriteResult, Error, number>({
-    mutationFn: (marketId) => resolveMarket(requireClient(), marketId),
+    mutationFn: (roundId) => scoreRound(requireClient(), roundId),
     onSuccess: () => invalidateAll(qc),
   });
 };
 
-export const useClaim = () => {
+export const useCollect = () => {
   const requireClient = useRequireClient();
   const qc = useQueryClient();
   return useMutation<WriteResult, Error, number>({
-    mutationFn: (marketId) => claim(requireClient(), marketId),
+    mutationFn: (roundId) => collect(requireClient(), roundId),
     onSuccess: () => invalidateAll(qc),
   });
 };

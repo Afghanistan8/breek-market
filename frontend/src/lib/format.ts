@@ -2,7 +2,7 @@
 
 import { GEN } from "./breek";
 
-/** wei -> "2.5 GEN", never via a JS number. */
+/** wei -> "2.5", never via a JS number. */
 export const fmtGen = (wei: string | bigint, decimals = 2): string => {
   const value = typeof wei === "bigint" ? wei : BigInt(wei || "0");
   const whole = value / GEN;
@@ -15,76 +15,54 @@ export const fmtGen = (wei: string | bigint, decimals = 2): string => {
 export const shortAddress = (address: string): string =>
   address && address.length > 10 ? `${address.slice(0, 6)}…${address.slice(-4)}` : address;
 
-/** Percentage of a pool held by one side, as an integer 0-100. */
-export const sharePct = (part: string, total: string): number => {
-  const t = BigInt(total || "0");
-  if (t === 0n) return 0;
-  return Number((BigInt(part || "0") * 10000n) / t) / 100;
-};
-
-export const KIND_LABEL: Record<string, string> = {
-  DIR_DAILY: "Direction - daily",
-  DIR_WEEKLY: "Direction - weekly",
-  REL_DAILY: "Relative return - daily",
-  REL_WEEKLY: "Relative return - weekly",
-};
-
-export const KIND_SHORT: Record<string, string> = {
-  DIR_DAILY: "DIR / D",
-  DIR_WEEKLY: "DIR / W",
-  REL_DAILY: "REL / D",
-  REL_WEEKLY: "REL / W",
-};
-
-export const PHASE_LABEL: Record<string, string> = {
-  OPEN: "Open for stakes",
-  WINDOW_LIVE: "Window running",
-  READY_TO_SETTLE: "Ready to settle",
-  SETTLED_UP: "Settled UP",
-  SETTLED_DOWN: "Settled DOWN",
-  SETTLED_WINNER: "Settled",
-  INCONCLUSIVE: "Inconclusive - refunded",
-};
-
-export const isSettled = (phase: string): boolean => phase.startsWith("SETTLED");
-
-/** Describe a market in one line, without leaning on the raw kind string. */
-export const marketTitle = (m: { kind: string; asset: string; category: string }): string => {
-  if (m.kind.startsWith("DIR")) return `${m.asset} closes UP or DOWN`;
-  return `Strongest ${m.category.toLowerCase()} return`;
-};
-
-/** Parse a "SYM:open:close,..." series from the settlement payload. */
-export interface SeriesRow {
-  symbol: string;
-  open: string;
-  close: string;
-  bps: number;
-}
-
-export const parseSeries = (raw?: string): SeriesRow[] => {
-  if (!raw) return [];
-  return raw
-    .split(",")
-    .map((entry) => {
-      const [symbol, open, close] = entry.split(":");
-      if (!symbol || !open || !close) return null;
-      const o = Number(open);
-      const c = Number(close);
-      const bps = o > 0 ? Math.floor(((c - o) / o) * 10000) : 0;
-      return { symbol, open, close, bps };
-    })
-    .filter((row): row is SeriesRow => row !== null);
-};
-
 /** Trim a fixed-point price for display without changing its value. */
 export const trimPrice = (value: string): string => {
-  if (!value.includes(".")) return value;
+  if (!value || !value.includes(".")) return value || "";
   const trimmed = value.replace(/0+$/, "").replace(/\.$/, "");
   return trimmed.length ? trimmed : "0";
 };
 
-export const fmtBps = (bps: number): string => `${bps >= 0 ? "+" : ""}${bps} bps`;
+/** Basis points as a percentage, for people who do not think in bps. */
+export const bpsAsPct = (bps: string | number, places = 2): string => {
+  const n = typeof bps === "number" ? bps : Number(bps || 0);
+  return `${(n / 100).toFixed(places)}%`;
+};
+
+export const ROUND_STATUS_LABEL: Record<string, string> = {
+  "": "in progress",
+  SCORED: "scored",
+  VOID_SPREAD: "void — feeds diverged",
+  VOID_EXPIRED: "void — expired",
+  VOID_NO_SCORES: "void — nobody in range",
+};
+
+export const PHASE_LABEL: Record<string, string> = {
+  ACCEPTING: "Accepting forecasts",
+  LOCKED: "Locked — window running",
+  AWAITING_SCORE: "Awaiting score",
+  SCORED: "Scored",
+  VOID: "Void",
+};
+
+export const OUTCOME_LABEL: Record<string, string> = {
+  SCORED: "scored",
+  OUTSIDE_BAND: "outside the band",
+  REFUND_VOID_SPREAD: "refund — feeds diverged",
+  REFUND_VOID_EXPIRED: "refund — round expired",
+  REFUND_VOID_NO_SCORES: "refund — nobody in range",
+};
+
+/** A round in one line. */
+export const roundTitle = (r: { asset: string; timeframe: string }): string =>
+  `${r.asset} close, ${r.timeframe === "WEEKLY" ? "week" : "day"}`;
+
+/** Accuracy weight as a 0-100 bar width. */
+export const weightPct = (weight: string, cutoff: string): number => {
+  const w = Number(weight || 0);
+  const c = Number(cutoff || 1000);
+  if (c <= 0) return 0;
+  return Math.max(0, Math.min(100, (w / c) * 100));
+};
 
 export const errorText = (error: unknown): string => {
   const message = error instanceof Error ? error.message : String(error);
@@ -96,7 +74,7 @@ export const errorText = (error: unknown): string => {
     EXPECTED: "Rejected",
     TRANSIENT: "Feed temporarily unavailable",
     EXTERNAL: "Feed unusable for this window",
-    INVARIANT: "Settlement evidence failed re-derivation",
+    INVARIANT: "Price evidence failed re-derivation",
   };
   return `${prefix[kind]}: ${pretty}`;
 };
