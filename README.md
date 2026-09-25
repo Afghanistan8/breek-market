@@ -85,7 +85,7 @@ settled at 116.58191598   (gate.io 116.61000000 / coingecko 116.55383196, gap 4 
 | Network | **studionet** (GenLayer Studio Network) |
 | Chain id | `61999` |
 | RPC | `https://studio.genlayer.com/api` |
-| Contract | [`0x2b5cF7247380d9B487758f27A2A5e1FFA7d821f7`](https://genlayer-explorer.vercel.app/address/0x2b5cF7247380d9B487758f27A2A5e1FFA7d821f7) |
+| Contract | [`0x4aDb6a8f9D0B920cC5699F75060324575C01E19a`](https://genlayer-explorer.vercel.app/address/0x4aDb6a8f9D0B920cC5699F75060324575C01E19a) |
 | Runner | `py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6` |
 | Frontend | https://breek-market-puce.vercel.app/ |
 | `genlayer-js` | **1.1.8** (pinned exactly) |
@@ -260,8 +260,9 @@ why it breaks the build.
 
 ## Known limitations
 
-- `genlayer` CLI 0.39.2 has **no `--value` flag**, so `submit_forecast` cannot be
-  called from it. Use the frontend or `scripts/net_exercise.py`.
+- `genlayer` CLI 0.39.2 cannot reach `submit_forecast` or `revise_forecast` at
+  all: it has no `--value` flag, and its argument parser crashes on decimals
+  (`BigInt("120.50")` throws). Use the frontend or `scripts/net_exercise.py`.
 - `genvm-lint validate` cannot load the SDK on the current release (it looks
   under `runners/…` while the artifacts moved to
   `executor/v0.2.17/legacy-runners/…`). `genvm-lint lint` passes.

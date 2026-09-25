@@ -67,7 +67,24 @@ export default function RoundDetail() {
   const accepting = r.phase === "ACCEPTING";
   const scoreable = r.phase === "AWAITING_SCORE";
   const collectable = mine && !mine.collected && BigInt(mine.collectable_wei || "0") > 0n;
-  const valid = /^\d+(\.\d+)?$/.test(draft.trim()) && Number(draft) > 0;
+
+  // Mirror the contract's own acceptance rules so a doomed entry is caught
+  // before it costs a signature. The bound comes from the catalog rather than
+  // a constant here, so the two can never drift apart.
+  const trimmed = draft.trim();
+  const wellFormed = /^\d+(\.\d+)?$/.test(trimmed);
+  const maxForecast = catalog.data ? Number(catalog.data.max_forecast) : Infinity;
+  const tooLarge = wellFormed && Number(trimmed) > maxForecast;
+  const valid = wellFormed && Number(trimmed) > 0 && !tooLarge;
+  const inputProblem = !trimmed
+    ? null
+    : !wellFormed
+      ? "Enter a plain decimal price, digits and one dot."
+      : Number(trimmed) <= 0
+        ? "A forecast has to be greater than zero."
+        : tooLarge
+          ? "That is larger than this contract will accept."
+          : null;
 
   return (
     <div className="stack" style={{ gap: 20 }}>
@@ -171,16 +188,23 @@ export default function RoundDetail() {
             </p>
           )}
 
-          <label className="field" style={{ marginBottom: 12 }}>
+          <label className="field" style={{ marginBottom: inputProblem ? 8 : 12 }}>
             {r.asset} price at close
             <input
               className="forecast-input mono"
               inputMode="decimal"
               placeholder="0.00"
               value={draft}
+              aria-invalid={Boolean(inputProblem)}
               onChange={(e) => setDraft(e.target.value)}
             />
           </label>
+
+          {inputProblem && (
+            <div className="note note-warn" style={{ marginBottom: 12 }}>
+              {inputProblem}
+            </div>
+          )}
 
           <WriteGate action={mine?.entered ? "revise" : "enter"}>
             {mine?.entered ? (

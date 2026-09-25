@@ -110,6 +110,7 @@ export interface Catalog {
   categories: CategoryInfo[];
   entry_fee_wei: string;
   gen_wei: string;
+  max_forecast: string;
   tolerance_bps: string;
   score_cutoff_bps: string;
   max_entries: string;

@@ -74,6 +74,16 @@ MAX_SOURCE_BYTES = 60000
 PRICE_SCALE = 10**8
 BPS_SCALE = 10000
 
+#: Largest forecast that may be stored, as a PRICE_SCALE integer.
+#:
+#: A u256 slot holds ~1.16e77, so a scaled forecast past roughly 1e69 overflows
+#: on write. That write happens AFTER the entry fee has been credited, and a
+#: raise there would revert the call with the fee already inside the contract --
+#: stranding it with no path out. The bound is therefore checked explicitly,
+#: before the Entry is constructed, and sits far below the storage ceiling since
+#: no real price comes near a quintillion.
+MAX_FORECAST = 10**18 * PRICE_SCALE
+
 PAYLOAD_VERSION = "f1"
 PAYLOAD_FIELDS = 11
 
@@ -546,7 +556,7 @@ class BreekForecast(gl.Contract):
         except Exception:
             self._pay(sender, value)
             return "REFUNDED:BAD_FORECAST"
-        if scaled <= 0:
+        if scaled <= 0 or scaled > MAX_FORECAST:
             self._pay(sender, value)
             return "REFUNDED:BAD_FORECAST"
 
@@ -585,7 +595,7 @@ class BreekForecast(gl.Contract):
             raise gl.vm.UserError(E_EXPECTED + "NOT_ENTERED")
 
         scaled = _dec_to_scaled(forecast)
-        if scaled <= 0:
+        if scaled <= 0 or scaled > MAX_FORECAST:
             raise gl.vm.UserError(E_EXPECTED + "BAD_FORECAST")
 
         entry.forecast = u256(scaled)
@@ -812,6 +822,7 @@ class BreekForecast(gl.Contract):
             ],
             "entry_fee_wei": str(ENTRY_FEE),
             "gen_wei": str(GEN),
+            "max_forecast": _scaled_to_dec(MAX_FORECAST),
             "tolerance_bps": str(TOLERANCE_BPS),
             "score_cutoff_bps": str(SCORE_CUTOFF_BPS),
             "max_entries": str(MAX_ENTRIES),

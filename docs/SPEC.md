@@ -445,4 +445,66 @@ stranded.
 
 Prior deployment, superseded:
 `0xC69eDF8Cd4d723002d1d658CAB3AD616A34532d7` (BreekMarket).
-Current: `0x2b5cF7247380d9B487758f27A2A5e1FFA7d821f7` (BreekForecast).
+Current: `0x4aDb6a8f9D0B920cC5699F75060324575C01E19a` (BreekForecast).
+
+---
+
+## 14. Audit finding: oversized forecast stranded the entry fee
+
+Found by writing hostile-input tests after the redesign, not by inspection.
+
+`submit_forecast` is payable and is written so that every rejection refunds
+inside the same call. One path escaped that: the size of the number itself.
+
+A scaled forecast is stored in a `u256` slot, which holds ~1.16e77. A forecast
+of 70 digits scales past that, and the overflow is raised by the **storage
+descriptor**, at the moment the `Entry` is written:
+
+```
+OverflowError: int too big to convert
+  genlayer/py/storage/_internal/desc_base_types.py:37
+      val.to_bytes(self.size, byteorder='little', signed=self.signed)
+```
+
+That write happens *after* the fee has been credited and was not caught, so the
+call reverted with the fee already inside the contract — exactly the
+stranded-value class the design claims to avoid. A 69-digit forecast was
+accepted; 70 reverted.
+
+**Fix.** An explicit `MAX_FORECAST = 10**18 * PRICE_SCALE` bound, checked in
+both `submit_forecast` and `revise_forecast` *before* the `Entry` is
+constructed. It sits far below the storage ceiling, so no real price can reach
+it, and the rejection is an ordinary in-call refund.
+
+The bound is published through `get_catalog` as `max_forecast` so the interface
+validates against the contract's own limit instead of a hardcoded copy.
+
+Pinned by `tests/direct/test_hostile.py`, which also covers the entrant cap, all
+malformed forecasts, every wrong fee, and the views that touch a zero
+`total_weight`.
+
+Superseded deployments:
+`0xC69eDF8Cd4d723002d1d658CAB3AD616A34532d7` (BreekMarket, old mechanics),
+`0x2b5cF7247380d9B487758f27A2A5e1FFA7d821f7` (BreekForecast, this bug).
+Current: `0x4aDb6a8f9D0B920cC5699F75060324575C01E19a`.
+
+---
+
+## 15. Audit finding: the CLI cannot send a decimal argument
+
+`genlayer` CLI 0.39.2 parses every argument through `parseScalar`, which ends:
+
+```js
+if (!isNaN(Number(value)) && Number.isSafeInteger(Number(value))) return Number(value);
+if (!isNaN(Number(value))) return BigInt(value);
+return value;
+```
+
+A decimal such as `120.50` is numeric but not a safe integer, so it reaches
+`BigInt("120.50")` and throws `SyntaxError: Cannot convert 120.50 to a BigInt`.
+There is no string-escape prefix.
+
+This means `submit_forecast` and `revise_forecast` are unreachable from the CLI
+regardless of the missing `--value` flag — a forecast is a decimal by nature.
+`scripts/net_exercise.py` passes a Python `str` through genlayer-py and is
+unaffected, as is the browser.

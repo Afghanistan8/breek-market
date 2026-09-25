@@ -55,7 +55,7 @@ export const TxStatus = ({
     >
       {refunded ? (
         <>
-          <strong>Stake refunded in the same transaction.</strong>{" "}
+          <strong>Entry fee refunded in the same transaction.</strong>{" "}
           {REFUND_REASON[returned.slice("REFUNDED:".length)] ?? returned}
         </>
       ) : (
@@ -83,11 +83,12 @@ const TxLink = ({ hash }: { hash: string }) => (
   </div>
 );
 
+/** Every reason submit_forecast can refund. Keep in lockstep with the contract. */
 const REFUND_REASON: Record<string, string> = {
-  NO_SUCH_MARKET: "That market does not exist.",
-  WINDOW_ALREADY_OPEN: "The window has already opened, so staking is closed.",
-  INVALID_SIDE: "That is not a valid side for this market.",
-  SIDE_SWITCH_FORBIDDEN: "You already hold the other side. Breek does not allow switching.",
-  BELOW_MIN_STAKE: "Your total stake would be under 2 GEN.",
-  ABOVE_MAX_STAKE: "Your total stake would be over 4 GEN.",
+  NO_SUCH_ROUND: "That round does not exist.",
+  ROUND_LOCKED: "The window has already opened, so forecasts are locked.",
+  WRONG_FEE: "The entry fee is a fixed amount and this was not it.",
+  ALREADY_ENTERED: "You are already in this round. Revising is free — use Revise instead.",
+  ROUND_FULL: "This round has reached its entrant cap.",
+  BAD_FORECAST: "That forecast is not a usable price.",
 };

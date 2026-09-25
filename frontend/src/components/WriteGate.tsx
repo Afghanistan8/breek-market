@@ -27,7 +27,7 @@ export const WalletBanner = () => {
   return (
     <div className="notice notice-warn" style={{ marginBottom: 16 }}>
       <strong>Connected, but writes are unavailable on {env.network}.</strong>{" "}
-      {writeBlocker} Reads still work, so you can browse every market.
+      {writeBlocker} Reads still work, so you can browse every round.
     </div>
   );
 };

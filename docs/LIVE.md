@@ -1,4 +1,4 @@
-# Breek Market — live deployment status
+# Breek — live deployment status
 
 What is actually deployed, what has actually been executed on it, and what has
 not. Anything unverified is marked as such rather than implied.
@@ -14,14 +14,19 @@ Last updated: 2026-09-25.
 | Network | **studionet** (GenLayer Studio Network) |
 | Chain id | `61999` |
 | RPC | `https://studio.genlayer.com/api` |
-| Contract | [`0xC69eDF8Cd4d723002d1d658CAB3AD616A34532d7`](https://genlayer-explorer.vercel.app/address/0xC69eDF8Cd4d723002d1d658CAB3AD616A34532d7) |
+| Contract | [`0x4aDb6a8f9D0B920cC5699F75060324575C01E19a`](https://genlayer-explorer.vercel.app/address/0x4aDb6a8f9D0B920cC5699F75060324575C01E19a) |
 | Runner | `py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6` |
 | Frontend | https://breek-market-puce.vercel.app/ |
 | `genlayer-js` | **1.1.8** (pinned exactly, no caret) |
 | `genlayer` CLI | 0.39.2 |
 | `genlayer-test` | 0.29.2 · `genvm-linter` 0.11.0 |
 
-No contract redeploy has been needed. This is the original deployment.
+Superseded deployments, kept here so an old link is traceable:
+
+| Address | Why superseded |
+|---|---|
+| `0xC69eDF8Cd4d723002d1d658CAB3AD616A34532d7` | `BreekMarket` — the prediction-market mechanics, replaced wholesale |
+| `0x2b5cF7247380d9B487758f27A2A5e1FFA7d821f7` | `BreekForecast` — carried the stranded-fee bug in SPEC section 14 |
 
 ---
 
@@ -30,7 +35,7 @@ No contract redeploy has been needed. This is the original deployment.
 **Browser writes: mechanism verified, no on-chain browser write observed yet.**
 Any EIP-1193 wallet is able to sign; nobody has yet signed one and recorded
 the hash here. Treat the row below as "should work, unproven" until this
-section carries a `take_position` hash.
+section carries a `submit_forecast` hash.
 
 This was previously documented the wrong way round, so it is worth stating the
 mechanism precisely. genlayer-js does **not** sign through the GenLayer MetaMask
@@ -69,100 +74,42 @@ studionet today.
 
 ## Executed on chain
 
-### Markets created
+### Rounds opened
 
-All three created through `create_market` on the live contract. No admin
-involved; `create_market` is permissionless.
+Both through the permissionless `open_round`. No admin involved.
 
-| id | kind | asset | GMT+1 window | phase | evidence |
-|---|---|---|---|---|---|
-| 1 | `DIR_DAILY` | SOL | 2026-09-27 | OPEN | returned `CREATED:1` |
-| 2 | `DIR_DAILY` | ETH | 2026-09-26 | OPEN | returned `CREATED:2` |
-| 3 | `DIR_WEEKLY` | NEAR | week of 2026-09-28 | OPEN | tx `0x5a19c0337680013555edc7428e14266a5f42067bef41980bd18839aa48b69584`, `MAJORITY_AGREE`, returned `CREATED:3` |
-
-Read back from the contract after creation:
-
-```
-get_stats  -> markets: '3', settled: '0', total_staked_wei: '0'
-
-get_market 2 -> kind DIR_DAILY, asset ETH, window_id 2026-09-26,
-                cutoff_at 1790377200, settles_at 1790463600, phase OPEN
-
-get_market 3 -> kind DIR_WEEKLY, asset NEAR, window_id 2026-09-28,
-                window_start 1790550000, window_end 1791154800, phase OPEN
-```
-
-Market 3 spans exactly `1791154800 - 1790550000 = 604800` seconds — one GMT+1
-week, Monday to Monday.
-
-### Public site, cold visit
-
-A cache-busted load of https://breek-market-puce.vercel.app/ renders the live
-contract state rather than a hero-only page:
-
-```
-3  markets created      0  settled on two feeds      0  inconclusive
-
-DIR / W  Open  NEAR closes UP or DOWN  Week of 2026-09-28  staking closes in 2d 03h
-DIR / D  Open  ETH  closes UP or DOWN  2026-09-26          staking closes in 3h 08m
-DIR / D  Open  SOL  closes UP or DOWN  2026-09-27          staking closes in 1d 03h
-```
-
-Reads do not hang, so no request timeout was added. `/market/2` renders the
-full detail view including the Sides table and the staking control.
+| id | asset | timeframe | GMT+1 window | phase |
+|---|---|---|---|---|
+| 1 | SOL | DAILY | 2026-09-27 | ACCEPTING |
+| 2 | ETH | WEEKLY | week of 2026-09-28 | ACCEPTING |
 
 ### Contract deployment
 
 ```
-deploy tx 0xf4a7c7032fee3196aa3140c8762538b0685aefa6a861697cd742f3c3c97891b7
+deploy tx 0x2f84b32f91aef3c05318b72fd367f61e24af65a2a4a9bf12259944af7f325714
           MAJORITY_AGREE, FINALIZED
 ```
 
----
+### Write paths verified on chain
 
-## Not yet executed
-
-**No stake has been placed on chain, so there is no stake hash here yet.**
-
-This is a tooling limitation, not a product one:
-
-* `genlayer` CLI 0.39.2 has **no `--value` flag**, so `take_position` (payable)
-  cannot be called from it. The three creates above were possible only because
-  `create_market` is non-payable.
-* `scripts/net_exercise.py` can attach value, but it needs a signing key in
-  `BREEK_PRIVATE_KEY`. That key was deliberately not extracted from the
-  deployer keystore during this work.
-
-Both paths to a stake are now open and untried:
-
-```bash
-# with a key you control
-export BREEK_PRIVATE_KEY=0x...
-python scripts/net_exercise.py --address 0xC69eDF8Cd4d723002d1d658CAB3AD616A34532d7 stake 2 UP 2
-```
-
-or, in the browser, connect OKX (or any wallet) at
-https://breek-market-puce.vercel.app/market/2 and stake 2 GEN. This section will
-carry the resulting hash once one of those has actually run.
-
-**No market has been settled on chain.** Markets 1–3 have future windows, so
-`resolve_market` correctly refuses them with `EXPECTED:WINDOW_NOT_CLOSED` until
-the window closes. Settlement is exercised end to end against **live Gate.io and
-CoinGecko data** — no mocks — by `scripts/demo_markets.py`, which warps consensus
-time in-process:
+Methods that take no value were exercised directly against the live contract:
 
 ```
-DIR_DAILY SOL 2026-09-24
-  -> resolve_market(1) -> SETTLED:UP   [2 live fetches]
-     source A (gate.io):   SOL:115.15000000:116.61000000 -> UP
-     source B (coingecko): SOL:115.09859487:116.55383196 -> UP
-     final: UP
-
-REL_DAILY 2026-09-24
-  -> resolve_market(2) -> SETTLED:NEAR [6 live fetches]
-     A: SOL +126, ETH -18, NEAR +596 -> NEAR
-     B: SOL +126, ETH -20, NEAR +583 -> NEAR
+score_round(1)  ->  EXPECTED:WINDOW_NOT_CLOSED
 ```
+
+That single call proves rather a lot: `score_round` is callable on chain, the
+consensus-time parser works there, the phase pre-checks fire, and
+`gl.vm.UserError` propagates back through the receipt intact.
+
+### Views verified on chain
+
+Every view was called against the live contract and its key set compared field
+by field against the TypeScript interfaces in `frontend/src/lib/breek.ts`:
+`get_catalog`, `get_stats`, `get_round`, `get_phase`, `get_evidence`,
+`get_leaderboard`, `get_entry`, `list_rounds`, `list_scoreable`,
+`list_entries`. All match exactly. `get_evidence` on an unscored round
+correctly omits the optional price fields.
 
 ---
 
@@ -170,7 +117,7 @@ REL_DAILY 2026-09-24
 
 | Check | Status |
 |---|---|
-| `python -m pytest tests` | 188 passed |
+| `python -m pytest tests` | 124 passed |
 | `genvm-lint lint contracts/BreekForecast.py` | passed |
 | `npx tsc --noEmit` (frontend) | clean |
 | `npm run build` (frontend) | clean |
@@ -178,10 +125,13 @@ REL_DAILY 2026-09-24
 | On-chain reads from the live site | working &mdash; cold cache-busted visit renders all three markets |
 | Client routes `/ /create /how /resolve /portfolio /market/2` | all 200, all render content |
 | Wallet discovery + connect | verified against simulated EIP-6963 wallets |
+| Every view's keys vs its TS interface | verified field by field against the live contract |
+| Non-payable write path on chain | verified (`score_round` -> `EXPECTED:WINDOW_NOT_CLOSED`) |
+| Hostile inputs (oversized, malformed, wrong fee, cap) | 15 tests, all refund rather than revert |
 | Real MetaMask / OKX popup | **not verified** — needs a browser with the extension |
-| On-chain stake / `take_position` | **not executed** — no hash recorded |
+| On-chain entry / `submit_forecast` | **not executed** — no hash recorded |
 | Browser-signed write of any kind | **not executed** |
-| On-chain settlement | **not executed** (no window has closed yet) |
+| On-chain scoring | **not executed** — no window has closed yet |
 
 ---
 
