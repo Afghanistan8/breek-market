@@ -29,6 +29,13 @@ pass prices, URLs, slugs, winners, directions or results.
 | Runner | `py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6` |
 | `genlayer` CLI | **0.39.2** |
 | `genlayer-test` | 0.29.2 · `genvm-linter` 0.11.0 · `genlayer-js` 0.15.1 |
+| Frontend | [`breek-market-afghanistan8s-projects.vercel.app`](https://breek-market-afghanistan8s-projects.vercel.app) |
+
+> The Vercel deployment currently sits behind **Deployment Protection**
+> (Vercel Authentication), so it asks for a Vercel login. To make it public:
+> Vercel dashboard → the `breek-market` project → Settings → Deployment
+> Protection → set Vercel Authentication to *Disabled*, or add a protection
+> bypass. Running `npm run dev` in `frontend/` needs none of this.
 
 ---
 
@@ -238,10 +245,20 @@ genlayer call <address> get_stats
 
 ### Frontend (Vercel)
 
+```bash
+cd frontend
+vercel deploy --prod
+```
+
 Root directory **`frontend`**, build `npm run build`, output `dist`.
-[`vercel.json`](vercel.json) provides the SPA rewrite. Set `VITE_BREEK_CONTRACT`
-(and the other `VITE_BREEK_*` variables if not on studionet) in the project
-settings.
+[`frontend/vercel.json`](frontend/vercel.json) carries the SPA rewrite for that
+layout; the repo-root [`vercel.json`](vercel.json) does the same for a project
+whose Root Directory is the repository root, so either import works.
+
+Set `VITE_BREEK_CONTRACT` (and the other `VITE_BREEK_*` variables if not on
+studionet) in the project settings. The defaults in
+[`frontend/src/lib/env.ts`](frontend/src/lib/env.ts) already point at the
+studionet deployment above, so an unconfigured deploy still works.
 
 ---
 

@@ -1,9 +1,9 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "npm run build",
-  "outputDirectory": "dist",
-  "installCommand": "npm install",
-  "framework": "vite",
+  "//": "Used when the Vercel project's Root Directory is the repository root. If Root Directory is set to `frontend` instead (as the README describes), Vercel reads frontend/vercel.json and ignores this file.",
+  "installCommand": "npm --prefix frontend install",
+  "buildCommand": "npm --prefix frontend run build",
+  "outputDirectory": "frontend/dist",
   "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }],
   "headers": [
     {
