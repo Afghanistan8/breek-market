@@ -1,0 +1,295 @@
+{
+  "DAILY 2026-09-24": {
+    "assets": {
+      "ETH": {
+        "coingecko": {
+          "bytes": 2847,
+          "close": 268427783801,
+          "close_raw": "2684.277838013781",
+          "open": 268953060195,
+          "open_raw": "2689.5306019537184",
+          "samples": 27,
+          "step_s": 3600,
+          "url": "https://api.coingecko.com/api/v3/coins/ethereum/market_chart/range?vs_currency=usd&from=1790200800&to=1790294400"
+        },
+        "dir": {
+          "a": "DOWN",
+          "b": "DOWN",
+          "final": "DOWN"
+        },
+        "gate": {
+          "bytes": 2328,
+          "candles": 24,
+          "close": 268552000000,
+          "close_raw": "2685.52",
+          "first_ts": 1790204400,
+          "last_ts": 1790287200,
+          "open": 269025000000,
+          "open_raw": "2690.25",
+          "url": "https://api.gateio.ws/api/v4/spot/candlesticks?currency_pair=ETH_USDT&interval=1h&from=1790204400&to=1790290799"
+        }
+      },
+      "NEAR": {
+        "coingecko": {
+          "bytes": 2816,
+          "close": 458129904,
+          "close_raw": "4.581299048751961",
+          "open": 432873039,
+          "open_raw": "4.32873039058222",
+          "samples": 27,
+          "step_s": 3600,
+          "url": "https://api.coingecko.com/api/v3/coins/near/market_chart/range?vs_currency=usd&from=1790200800&to=1790294400"
+        },
+        "dir": {
+          "a": "UP",
+          "b": "UP",
+          "final": "UP"
+        },
+        "gate": {
+          "bytes": 2180,
+          "candles": 24,
+          "close": 458300000,
+          "close_raw": "4.583",
+          "first_ts": 1790204400,
+          "last_ts": 1790287200,
+          "open": 432500000,
+          "open_raw": "4.325",
+          "url": "https://api.gateio.ws/api/v4/spot/candlesticks?currency_pair=NEAR_USDT&interval=1h&from=1790204400&to=1790290799"
+        }
+      },
+      "SOL": {
+        "coingecko": {
+          "bytes": 2825,
+          "close": 11655383196,
+          "close_raw": "116.55383196749293",
+          "open": 11509859487,
+          "open_raw": "115.09859487716041",
+          "samples": 27,
+          "step_s": 3600,
+          "url": "https://api.coingecko.com/api/v3/coins/solana/market_chart/range?vs_currency=usd&from=1790200800&to=1790294400"
+        },
+        "dir": {
+          "a": "UP",
+          "b": "UP",
+          "final": "UP"
+        },
+        "gate": {
+          "bytes": 2250,
+          "candles": 24,
+          "close": 11661000000,
+          "close_raw": "116.61",
+          "first_ts": 1790204400,
+          "last_ts": 1790287200,
+          "open": 11515000000,
+          "open_raw": "115.15",
+          "url": "https://api.gateio.ws/api/v4/spot/candlesticks?currency_pair=SOL_USDT&interval=1h&from=1790204400&to=1790290799"
+        }
+      }
+    },
+    "rel": {
+      "a": "NEAR",
+      "a_bps": {
+        "ETH": -18,
+        "NEAR": 596,
+        "SOL": 126
+      },
+      "b": "NEAR",
+      "b_bps": {
+        "ETH": -20,
+        "NEAR": 583,
+        "SOL": 126
+      },
+      "final": "NEAR"
+    },
+    "window": [
+      1790204400,
+      1790290800
+    ]
+  },
+  "HOURLY 1790337600": {
+    "assets": {
+      "ETH": {
+        "coingecko_error": "HTTP 429: b'{\"status\":{\"error_code\":429,\"error_message\":\"You\\'ve exceeded the Rate Limit. Please visit https://www.coingecko.com/en/api/pricing to subscribe to our API plans for higher rate limits.\"}}'",
+        "gate": {
+          "bytes": 98,
+          "candles": 1,
+          "close": 271762000000,
+          "close_raw": "2717.62",
+          "first_ts": 1790337600,
+          "last_ts": 1790337600,
+          "open": 271740000000,
+          "open_raw": "2717.4",
+          "url": "https://api.gateio.ws/api/v4/spot/candlesticks?currency_pair=ETH_USDT&interval=1h&from=1790337600&to=1790341199"
+        }
+      },
+      "NEAR": {
+        "coingecko_error": "HTTP 429: b'{\"status\":{\"error_code\":429,\"error_message\":\"You\\'ve exceeded the Rate Limit. Please visit https://www.coingecko.com/en/api/pricing to subscribe to our API plans for higher rate limits.\"}}'",
+        "gate": {
+          "bytes": 90,
+          "candles": 1,
+          "close": 505300000,
+          "close_raw": "5.053",
+          "first_ts": 1790337600,
+          "last_ts": 1790337600,
+          "open": 502700000,
+          "open_raw": "5.027",
+          "url": "https://api.gateio.ws/api/v4/spot/candlesticks?currency_pair=NEAR_USDT&interval=1h&from=1790337600&to=1790341199"
+        }
+      },
+      "SOL": {
+        "coingecko_error": "HTTP 429: b'{\"status\":{\"error_code\":429,\"error_message\":\"You\\'ve exceeded the Rate Limit. Please visit https://www.coingecko.com/en/api/pricing to subscribe to our API plans for higher rate limits.\"}}'",
+        "gate": {
+          "bytes": 94,
+          "candles": 1,
+          "close": 12074000000,
+          "close_raw": "120.74",
+          "first_ts": 1790337600,
+          "last_ts": 1790337600,
+          "open": 12087000000,
+          "open_raw": "120.87",
+          "url": "https://api.gateio.ws/api/v4/spot/candlesticks?currency_pair=SOL_USDT&interval=1h&from=1790337600&to=1790341199"
+        }
+      }
+    },
+    "window": [
+      1790337600,
+      1790341200
+    ]
+  },
+  "WEEKLY 2026-09-14": {
+    "assets": {
+      "ETH": {
+        "coingecko": {
+          "bytes": 17753,
+          "close": 263868708094,
+          "close_raw": "2638.6870809448455",
+          "open": 247460318750,
+          "open_raw": "2474.603187509969",
+          "samples": 171,
+          "step_s": 3600,
+          "url": "https://api.coingecko.com/api/v3/coins/ethereum/market_chart/range?vs_currency=usd&from=1789336800&to=1789948800"
+        },
+        "dir": {
+          "a": "UP",
+          "b": "UP",
+          "final": "UP"
+        },
+        "gate": {
+          "bytes": 16279,
+          "candles": 168,
+          "close": 263961000000,
+          "close_raw": "2639.61",
+          "first_ts": 1789340400,
+          "last_ts": 1789941600,
+          "open": 247557000000,
+          "open_raw": "2475.57",
+          "url": "https://api.gateio.ws/api/v4/spot/candlesticks?currency_pair=ETH_USDT&interval=1h&from=1789340400&to=1789945199"
+        }
+      },
+      "NEAR": {
+        "coingecko": {
+          "bytes": 17679,
+          "close": 407198467,
+          "close_raw": "4.071984670364771",
+          "open": 230882040,
+          "open_raw": "2.3088204019701464",
+          "samples": 171,
+          "step_s": 3600,
+          "url": "https://api.coingecko.com/api/v3/coins/near/market_chart/range?vs_currency=usd&from=1789336800&to=1789948800"
+        },
+        "dir": {
+          "a": "UP",
+          "b": "UP",
+          "final": "UP"
+        },
+        "gate": {
+          "bytes": 15143,
+          "candles": 168,
+          "close": 406600000,
+          "close_raw": "4.066",
+          "first_ts": 1789340400,
+          "last_ts": 1789941600,
+          "open": 230900000,
+          "open_raw": "2.309",
+          "url": "https://api.gateio.ws/api/v4/spot/candlesticks?currency_pair=NEAR_USDT&interval=1h&from=1789340400&to=1789945199"
+        }
+      },
+      "SOL": {
+        "coingecko": {
+          "bytes": 17676,
+          "close": 11095557730,
+          "close_raw": "110.95557730712709",
+          "open": 9970045916,
+          "open_raw": "99.7004591692876",
+          "samples": 171,
+          "step_s": 3600,
+          "url": "https://api.coingecko.com/api/v3/coins/solana/market_chart/range?vs_currency=usd&from=1789336800&to=1789948800"
+        },
+        "dir": {
+          "a": "UP",
+          "b": "UP",
+          "final": "UP"
+        },
+        "gate": {
+          "bytes": 15544,
+          "candles": 168,
+          "close": 11104000000,
+          "close_raw": "111.04",
+          "first_ts": 1789340400,
+          "last_ts": 1789941600,
+          "open": 9973000000,
+          "open_raw": "99.73",
+          "url": "https://api.gateio.ws/api/v4/spot/candlesticks?currency_pair=SOL_USDT&interval=1h&from=1789340400&to=1789945199"
+        }
+      }
+    },
+    "rel": {
+      "a": "NEAR",
+      "a_bps": {
+        "ETH": 662,
+        "NEAR": 7609,
+        "SOL": 1134
+      },
+      "b": "NEAR",
+      "b_bps": {
+        "ETH": 663,
+        "NEAR": 7636,
+        "SOL": 1128
+      },
+      "final": "NEAR"
+    },
+    "window": [
+      1789340400,
+      1789945200
+    ]
+  },
+  "dominance": {
+    "coingecko_global": {
+      "error": "HTTP 429: b'{\"status\":{\"error_code\":429,\"error_message\":\"You\\'ve exceeded the Rate Limit. Please visit https://www.coingecko.com/en/api/pricing to subscribe to our API plans for higher rate limits.\"}}'",
+      "ok": false,
+      "url": "https://api.coingecko.com/api/v3/global"
+    },
+    "coingecko_global_history": {
+      "error": "HTTP 429: b'{\"status\":{\"error_code\":429,\"error_message\":\"You\\'ve exceeded the Rate Limit. Please visit https://www.coingecko.com/en/api/pricing to subscribe to our API plans for higher rate limits.\"}}'",
+      "ok": false,
+      "url": "https://api.coingecko.com/api/v3/global/market_cap_chart?days=7"
+    },
+    "coinlore_global": {
+      "bytes": 278,
+      "note": "current only: BTC.D=58.82 ETH.D=11.58 (no history)",
+      "ok": true,
+      "url": "https://api.coinlore.net/api/global/"
+    },
+    "coinpaprika_global": {
+      "bytes": 453,
+      "note": "current only: BTC.D=55.95 total_mcap=3023580752046 (no history)",
+      "ok": true,
+      "url": "https://api.coinpaprika.com/v1/global"
+    },
+    "settlable": false
+  },
+  "hourly_settlable": false,
+  "probed_at": 1790342996,
+  "source_a": "gate.io",
+  "source_b": "coingecko"
+}
