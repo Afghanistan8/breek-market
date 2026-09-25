@@ -27,7 +27,10 @@ No contract redeploy has been needed. This is the original deployment.
 
 ## Write status
 
-**Browser writes: available.** Any EIP-1193 wallet can sign.
+**Browser writes: mechanism verified, no on-chain browser write observed yet.**
+Any EIP-1193 wallet is able to sign; nobody has yet signed one and recorded
+the hash here. Treat the row below as "should work, unproven" until this
+section carries a `take_position` hash.
 
 This was previously documented the wrong way round, so it is worth stating the
 mechanism precisely. genlayer-js does **not** sign through the GenLayer MetaMask
@@ -91,6 +94,22 @@ get_market 3 -> kind DIR_WEEKLY, asset NEAR, window_id 2026-09-28,
 
 Market 3 spans exactly `1791154800 - 1790550000 = 604800` seconds — one GMT+1
 week, Monday to Monday.
+
+### Public site, cold visit
+
+A cache-busted load of https://breek-market-puce.vercel.app/ renders the live
+contract state rather than a hero-only page:
+
+```
+3  markets created      0  settled on two feeds      0  inconclusive
+
+DIR / W  Open  NEAR closes UP or DOWN  Week of 2026-09-28  staking closes in 2d 03h
+DIR / D  Open  ETH  closes UP or DOWN  2026-09-26          staking closes in 3h 08m
+DIR / D  Open  SOL  closes UP or DOWN  2026-09-27          staking closes in 1d 03h
+```
+
+Reads do not hang, so no request timeout was added. `/market/2` renders the
+full detail view including the Sides table and the staking control.
 
 ### Contract deployment
 
@@ -156,10 +175,12 @@ REL_DAILY 2026-09-24
 | `npx tsc --noEmit` (frontend) | clean |
 | `npm run build` (frontend) | clean |
 | Live URL reachable | 200, assets 200, SPA rewrite 200 |
-| On-chain reads from the live site | working (catalog, stats, markets) |
+| On-chain reads from the live site | working &mdash; cold cache-busted visit renders all three markets |
+| Client routes `/ /create /how /resolve /portfolio /market/2` | all 200, all render content |
 | Wallet discovery + connect | verified against simulated EIP-6963 wallets |
-| Real MetaMask / OKX popup | **not verified by the author** — needs a browser with the extension |
-| On-chain stake | **not executed** (see above) |
+| Real MetaMask / OKX popup | **not verified** — needs a browser with the extension |
+| On-chain stake / `take_position` | **not executed** — no hash recorded |
+| Browser-signed write of any kind | **not executed** |
 | On-chain settlement | **not executed** (no window has closed yet) |
 
 ---

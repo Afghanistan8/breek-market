@@ -31,7 +31,7 @@ pass prices, URLs, slugs, winners, directions or results.
 | `genlayer-test` | 0.29.2 · `genvm-linter` 0.11.0 |
 | `genlayer-js` | **1.1.8** (pinned exactly) |
 | Frontend | https://breek-market-puce.vercel.app/ |
-| Browser writes | **working** — any EIP-1193 wallet (MetaMask, OKX, Rabby…) |
+| Browser writes | mechanism verified, **not yet confirmed on chain** — see [`docs/LIVE.md`](docs/LIVE.md) |
 
 Live status, executed transactions and what has *not* been executed:
 [`docs/LIVE.md`](docs/LIVE.md).
