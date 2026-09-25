@@ -66,9 +66,9 @@ Two separate problems stopped hourly:
    fixed instants, so the sample at `window_end` is not reliably present for an
    hour that has only just closed.
 
-`KINDS` therefore contains only `DIR_DAILY`, `DIR_WEEKLY`, `REL_DAILY`,
-`REL_WEEKLY`. The UI says why on the Create page. The two-source rule was **not**
-weakened to keep hourly.
+`TIMEFRAMES` therefore contains only `DAILY` and `WEEKLY`. The UI says why on
+the "Open a round" page. The two-source rule was **not** weakened to keep
+hourly.
 
 ---
 
@@ -77,7 +77,7 @@ weakened to keep hourly.
 **Brief:** keep DOMINANCE in the UI as a catalog only unless two working sources
 exist; never settle it from one source.
 
-**Finding:** no second source exists, so `create_market` rejects the category
+**Finding:** no second source exists, so `open_round` rejects the category
 outright with `EXPECTED:CATEGORY_NOT_SETTLABLE`.
 
 Settling `BTC.D` / `ETH.D` / `OTHERS.D` over a past GMT+1 window needs BTC market
@@ -219,8 +219,9 @@ krkn:200:1 | kucn:200:1 | bstp:200:1
 
 * **CoinGecko returns 200 from studionet validators.** It did not rate-limit.
 * The 429s seen locally came from a single laptop IP issuing ~12 requests in
-  under a minute — a burst no single `resolve_market` produces. One `DIR_*`
-  settle makes 1 CoinGecko request; one `REL_*` settle makes 3.
+  under a minute — a burst no single `score_round` produces. Scoring a round
+  makes exactly one CoinGecko request and one Gate.io request, whatever the
+  timeframe.
 * **Binance is geo-blocked (451) and Bybit is blocked (403) from validators.**
   Had Source B been swapped on the local evidence alone, the result would have
   been a feed the validators cannot reach at all.
@@ -303,14 +304,14 @@ These affect development, not the deployed contract.
   `runners/…` while the current release relocated them to
   `executor/v0.2.17/legacy-runners/…`, so it reports
   `filename 'runners/py-genlayer/1j/…tar' not found`. `genvm-lint lint` passes
-  cleanly and is the check to run; semantic checking is covered instead by 188 tests
+  cleanly and is the check to run; semantic checking is covered instead by 124 tests
   that execute the real contract through the real runner.
-* **`genlayer` CLI 0.39.2 has no `--value` flag**, so `take_position` cannot be
-  called from it. Use the frontend or `scripts/net_exercise.py`.
-* **The CLI cannot encode an empty string**, so `create_market` for the `REL_*`
-  kinds is unreachable from it — `""` is coerced to integer `0`, which the
-  contract correctly rejects with `EXPECTED:REL_TAKES_NO_ASSET`. Use the frontend
-  or `scripts/net_exercise.py`.
+* **`genlayer` CLI 0.39.2 has no `--value` flag**, so the payable
+  `submit_forecast` cannot be called from it.
+* **The CLI's argument parser crashes on a decimal**, so even unpriced
+  `revise_forecast` is unreachable from it: a forecast like `120.50` reaches
+  `BigInt("120.50")`, which throws. `open_round` works from the CLI; entering
+  and revising need the frontend or `scripts/net_exercise.py`.
 * **`gltest`'s `vm.warp()` does not propagate into `gl.message_raw['datetime']`**
   (it refreshes sender, origin and value only). `tests/conftest.py::warp_to`
   sets both; without it every warp silently leaves the contract frozen at deploy

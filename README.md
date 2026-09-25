@@ -209,7 +209,7 @@ parser.
 python scripts/check_sources.py --json docs/source-probe.json
 ```
 
-**Tests and lint.** 109 tests, in-process, no network.
+**Tests and lint.** 124 tests, in-process, no network.
 
 ```bash
 python -m pytest tests

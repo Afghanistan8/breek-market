@@ -3,7 +3,7 @@
 What is actually deployed, what has actually been executed on it, and what has
 not. Anything unverified is marked as such rather than implied.
 
-Last updated: 2026-09-25.
+Last updated: 2026-09-26.
 
 ---
 
@@ -32,10 +32,15 @@ Superseded deployments, kept here so an old link is traceable:
 
 ## Write status
 
-**Browser writes: mechanism verified, no on-chain browser write observed yet.**
-Any EIP-1193 wallet is able to sign; nobody has yet signed one and recorded
-the hash here. Treat the row below as "should work, unproven" until this
-section carries a `submit_forecast` hash.
+**Browser writes: executed on chain.** A payable `submit_forecast` from the
+deployer wallet is finalized at
+[`0x7a920956…cfcfd96f`](https://explorer-studio.genlayer.com/tx/0x7a920956422a32e678a4e57cdcd6a53f0eefcd93a2f62d509796055ecfcfd96f),
+GenVM result SUCCESS, consensus Accepted, and the contract balance moved to
+**1 GEN** — so the fee genuinely transferred rather than being refunded in
+call. This was wallet-signed: the `genlayer` CLI cannot attach value at all,
+and `scripts/net_exercise.py` needs `BREEK_PRIVATE_KEY`, which was never
+exported. Which wallet brand rendered the prompt is not recorded here, because
+it was not observed from this side.
 
 This was previously documented the wrong way round, so it is worth stating the
 mechanism precisely. genlayer-js does **not** sign through the GenLayer MetaMask
@@ -82,6 +87,19 @@ Both through the permissionless `open_round`. No admin involved.
 |---|---|---|---|---|
 | 1 | SOL | DAILY | 2026-09-27 | ACCEPTING |
 | 2 | ETH | WEEKLY | week of 2026-09-28 | ACCEPTING |
+| 3 | NEAR | DAILY | 2026-09-27 | ACCEPTING — **1 forecast, 1 GEN pot** |
+| 4 | SOL | WEEKLY | week of 2026-09-28 | ACCEPTING |
+
+### Forecasts submitted
+
+| round | asset | entrant | revisions | forecast |
+|---|---|---|---|---|
+| 3 | NEAR | `0x4184bc…FB0df3` | 0 | **sealed until the round is priced** |
+
+The number is not recorded here because it is not readable: `get_leaderboard`
+withholds forecasts while a round is accepting, so nobody — including whoever
+writes this file — can copy the field. It becomes visible when `score_round(3)`
+runs, which is possible from **28 Sep 2026, 00:00 GMT+1**.
 
 ### Contract deployment
 
@@ -92,13 +110,17 @@ deploy tx 0x2f84b32f91aef3c05318b72fd367f61e24af65a2a4a9bf12259944af7f325714
 
 ### Transaction hashes, as the Studio explorer shows them
 
-All three FINALIZED with GenVM result SUCCESS:
+All six FINALIZED with GenVM result SUCCESS and consensus Accepted. This is the
+contract's complete transaction history as the explorer lists it:
 
 | Tx | Method |
 |---|---|
 | [`0x2f84b32f…7f325714`](https://explorer-studio.genlayer.com/tx/0x2f84b32f91aef3c05318b72fd367f61e24af65a2a4a9bf12259944af7f325714) | deploy |
 | [`0x4becfd92…079845a1`](https://explorer-studio.genlayer.com/tx/0x4becfd92f229c2aa6fbdc3ea11fffb40484b2d405f72bebfe840565f079845a1) | `open_round` (round 1, SOL) |
 | [`0xdc810014…3ad4a8d4`](https://explorer-studio.genlayer.com/tx/0xdc8100142806a843762a2119b9b2f507c2444e33203b32bb929670813ad4a8d4) | `open_round` (round 2, ETH) |
+| [`0x22b78cd3…0dd1be74`](https://explorer-studio.genlayer.com/tx/0x22b78cd360fd97ccd747ff90b0172942adf58814fadfd66b727b16f20dd1be74) | `open_round` (round 3, NEAR) |
+| [`0xc466681b…c933bfc8`](https://explorer-studio.genlayer.com/tx/0xc466681b48eea5343abbbbeddf4a1e16505dbf57e0e1721f34411b9dc933bfc8) | `open_round` (round 4, SOL weekly) |
+| [`0x7a920956…cfcfd96f`](https://explorer-studio.genlayer.com/tx/0x7a920956422a32e678a4e57cdcd6a53f0eefcd93a2f62d509796055ecfcfd96f) | **`submit_forecast` (round 3, payable, 1 GEN)** |
 
 Note the explorer host: `explorer-studio.genlayer.com`. The
 `genlayer-explorer.vercel.app` host used earlier in this repo returns **503**
@@ -136,25 +158,28 @@ correctly omits the optional price fields.
 | `npx tsc --noEmit` (frontend) | clean |
 | `npm run build` (frontend) | clean |
 | Live URL reachable | 200, assets 200, SPA rewrite 200 |
-| On-chain reads from the live site | working &mdash; cold cache-busted visit renders all three markets |
-| Client routes `/ /create /how /resolve /portfolio /market/2` | all 200, all render content |
+| On-chain reads from the live site | working &mdash; cold cache-busted visit renders all four rounds |
+| Client routes `/ /round/3 /open /score /me /how` | all 200; unknown paths 200 and redirect to the board |
+| Live display prices from the deployed origin | working &mdash; both feeds fetched cross-origin, no proxy |
 | Wallet discovery + connect | verified against simulated EIP-6963 wallets |
 | Every view's keys vs its TS interface | verified field by field against the live contract |
 | Non-payable write path on chain | verified (`score_round` -> `EXPECTED:WINDOW_NOT_CLOSED`) |
 | Hostile inputs (oversized, malformed, wrong fee, cap) | 15 tests, all refund rather than revert |
-| Real MetaMask / OKX popup | **not verified** — needs a browser with the extension |
-| On-chain entry / `submit_forecast` | **not executed** — no hash recorded |
-| Browser-signed write of any kind | **not executed** |
-| On-chain scoring | **not executed** — no window has closed yet |
+| Payable write path on chain | verified &mdash; `submit_forecast` FINALIZED, contract balance 1 GEN |
+| Wallet-signed write of any kind | verified by elimination (CLI cannot attach value; no key exported) |
+| Which wallet rendered the prompt | **not recorded** &mdash; not observed from this side |
+| On-chain scoring | **not executed** &mdash; no window has closed yet; round 3 is first, from 28 Sep 2026 00:00 GMT+1 |
+| On-chain `collect` | **not executed** &mdash; nothing has been scored |
 
 ---
 
 ## Known limitations
 
-* `genlayer` CLI 0.39.2 cannot attach value (`take_position`) and cannot encode
-  an empty string, so `REL_*` markets cannot be created from it either — `""`
-  is coerced to integer `0` and the contract correctly rejects it with
-  `EXPECTED:REL_TAKES_NO_ASSET`. Use the frontend or `scripts/net_exercise.py`.
+* `genlayer` CLI 0.39.2 cannot reach `submit_forecast` or `revise_forecast`: it
+  has no flag for attaching value, and its argument parser crashes on a decimal
+  price (`BigInt("120.50")` throws). `open_round` works from it; everything
+  else needs the frontend or `scripts/net_exercise.py`. The round 3 entry
+  recorded above went through the wallet path for exactly this reason.
 * `genvm-lint validate` cannot load the SDK on the current release: it looks
   under `runners/…` while the artifacts moved to
   `executor/v0.2.17/legacy-runners/…`. `genvm-lint lint` passes.
