@@ -113,28 +113,55 @@ export interface Stats {
 // Client
 // ---------------------------------------------------------------------------
 
+/**
+ * The chain definition, with the RPC forced to the configured one.
+ *
+ * The SDK ships its own URL for each named chain. If that ever diverges from
+ * VITE_BREEK_RPC the app would silently read and write against a different node
+ * than the one it advertises, so the configured endpoint always wins.
+ */
 const chainFor = (): GenLayerChain => {
   const table = chains as unknown as Record<string, GenLayerChain>;
   const named = table[env.network];
-  if (named && named.id === env.chainId) return named;
-  const match = Object.values(table).find(
-    (c) => c && typeof c === "object" && "id" in c && c.id === env.chainId,
-  );
-  if (match) return match;
-  throw new Error(
-    `No genlayer-js chain definition for chain id ${env.chainId} (${env.network}).`,
-  );
+  const base =
+    named && named.id === env.chainId
+      ? named
+      : Object.values(table).find(
+          (c) => c && typeof c === "object" && "id" in c && c.id === env.chainId,
+        );
+  if (!base) {
+    throw new Error(
+      `No genlayer-js chain definition for chain id ${env.chainId} (${env.network}).`,
+    );
+  }
+  if (base.rpcUrls?.default?.http?.[0] === env.rpc) return base;
+  return {
+    ...base,
+    rpcUrls: { ...base.rpcUrls, default: { ...base.rpcUrls.default, http: [env.rpc] } },
+  } as GenLayerChain;
 };
 
 let readClient: ReturnType<typeof createClient> | null = null;
 
 export const getReadClient = () => {
-  if (!readClient) readClient = createClient({ chain: chainFor() });
+  if (!readClient) readClient = createClient({ chain: chainFor(), endpoint: env.rpc });
   return readClient;
 };
 
-export const makeClient = (account?: unknown) =>
-  createClient({ chain: chainFor(), account: account as never });
+/**
+ * A client bound to a specific wallet.
+ *
+ * Both `account` and `provider` matter: without the provider the SDK has no
+ * EIP-1193 channel and cannot prompt the wallet at all, which is why an earlier
+ * version of this app appeared to do nothing when you pressed Connect.
+ */
+export const makeClient = (account?: string, provider?: unknown) =>
+  createClient({
+    chain: chainFor(),
+    endpoint: env.rpc,
+    account: account as never,
+    provider: provider as never,
+  });
 
 // ---------------------------------------------------------------------------
 // Reads

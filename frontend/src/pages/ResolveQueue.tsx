@@ -2,13 +2,15 @@ import { Link } from "react-router-dom";
 
 import { PhaseTag } from "../components/PhaseTag";
 import { TxStatus } from "../components/TxStatus";
+import { useCanWrite } from "../components/WriteGate";
 import { useNow, useResolvable, useResolveMarket } from "../hooks";
 import { KIND_SHORT, fmtGen, marketTitle } from "../lib/format";
 import { fmtCountdown, fmtGmt1 } from "../lib/gmt";
 import { useWallet } from "../lib/wallet";
 
 export default function ResolveQueue() {
-  const { address } = useWallet();
+  const { address, openPicker, writeBlocker } = useWallet();
+  const canWrite = useCanWrite();
   const now = useNow();
   const queue = useResolvable();
   const resolve = useResolveMarket();
@@ -78,7 +80,7 @@ export default function ResolveQueue() {
                   <td style={{ textAlign: "right" }}>
                     <button
                       className="btn btn-sm btn-primary"
-                      disabled={!address || resolve.isPending}
+                      disabled={!canWrite || resolve.isPending}
                       onClick={() => resolve.mutate(Number(m.market_id))}
                     >
                       Settle
@@ -94,7 +96,19 @@ export default function ResolveQueue() {
       <TxStatus pending={resolve.isPending} error={resolve.error} result={resolve.data} />
 
       {!address && rows.length > 0 && (
-        <div className="notice notice-warn">Connect a wallet to settle a market.</div>
+        <div className="notice notice-warn">
+          <button className="btn btn-sm btn-primary" onClick={openPicker}>
+            Connect a wallet
+          </button>{" "}
+          to settle a market.
+        </div>
+      )}
+
+      {address && !canWrite && rows.length > 0 && (
+        <div className="notice notice-warn">
+          This wallet cannot sign Breek transactions.{" "}
+          {writeBlocker ?? "Connect MetaMask with the GenLayer snap to settle."}
+        </div>
       )}
 
       {rows.length > 0 && (

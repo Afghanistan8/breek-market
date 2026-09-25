@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 
 import { PhaseTag } from "../components/PhaseTag";
 import { TxStatus } from "../components/TxStatus";
+import { useCanWrite } from "../components/WriteGate";
 import { useClaim, usePortfolio } from "../hooks";
 import { fmtGen, marketTitle, shortAddress } from "../lib/format";
 import { useWallet } from "../lib/wallet";
@@ -14,7 +15,8 @@ const CLAIM_LABEL: Record<string, string> = {
 };
 
 export default function Portfolio() {
-  const { address, connect } = useWallet();
+  const { address, openPicker, writeBlocker } = useWallet();
+  const canWrite = useCanWrite();
   const portfolio = usePortfolio();
   const claimIt = useClaim();
 
@@ -25,7 +27,7 @@ export default function Portfolio() {
         <p className="muted" style={{ margin: 0 }}>
           Connect a wallet to see your positions, payouts and refunds.
         </p>
-        <button className="btn btn-primary" onClick={() => void connect()}>
+        <button className="btn btn-primary" onClick={openPicker}>
           Connect wallet
         </button>
       </div>
@@ -124,7 +126,7 @@ export default function Portfolio() {
                       {claimable && (
                         <button
                           className="btn btn-sm btn-primary"
-                          disabled={claimIt.isPending}
+                          disabled={!canWrite || claimIt.isPending}
                           onClick={() => claimIt.mutate(Number(market.market_id))}
                         >
                           Claim
@@ -137,6 +139,13 @@ export default function Portfolio() {
             </tbody>
           </table>
         </section>
+      )}
+
+      {address && !canWrite && rows.length > 0 && (
+        <div className="notice notice-warn">
+          This wallet cannot sign Breek transactions, so claiming is unavailable.{" "}
+          {writeBlocker ?? ""}
+        </div>
       )}
 
       <TxStatus pending={claimIt.isPending} error={claimIt.error} result={claimIt.data} />

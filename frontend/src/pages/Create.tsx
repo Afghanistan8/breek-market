@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { TxStatus } from "../components/TxStatus";
+import { WriteGate } from "../components/WriteGate";
 import { useCatalog, useCreateMarket } from "../hooks";
 import {
   fmtGmt1Long,
@@ -11,13 +12,11 @@ import {
   nextMondayId,
   weekWindow,
 } from "../lib/gmt";
-import { useWallet } from "../lib/wallet";
 
 type Timeframe = "DAILY" | "WEEKLY";
 type Shape = "DIR" | "REL";
 
 export default function Create() {
-  const { address } = useWallet();
   const catalog = useCatalog();
   const create = useCreateMarket();
 
@@ -194,21 +193,23 @@ export default function Create() {
 
         {problem && <div className="notice notice-warn">{problem}</div>}
 
-        <button
-          className="btn btn-primary"
-          disabled={!address || Boolean(problem) || create.isPending}
-          onClick={() =>
-            create.mutate({
-              kind,
-              category,
-              asset: shape === "REL" ? "" : asset,
-              timeframe,
-              windowId,
-            })
-          }
-        >
-          {!address ? "Connect a wallet to create" : `Create ${kind} market`}
-        </button>
+        <WriteGate action="create a market">
+          <button
+            className="btn btn-primary"
+            disabled={Boolean(problem) || create.isPending}
+            onClick={() =>
+              create.mutate({
+                kind,
+                category,
+                asset: shape === "REL" ? "" : asset,
+                timeframe,
+                windowId,
+              })
+            }
+          >
+            {`Create ${kind} market`}
+          </button>
+        </WriteGate>
 
         <TxStatus pending={create.isPending} error={create.error} result={create.data} />
       </section>

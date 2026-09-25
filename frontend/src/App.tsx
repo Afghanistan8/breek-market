@@ -1,6 +1,8 @@
 import { NavLink, Navigate, Route, Routes } from "react-router-dom";
 
 import { ConnectButton } from "./components/ConnectButton";
+import { WalletPicker } from "./components/WalletPicker";
+import { WalletBanner } from "./components/WriteGate";
 import { env, contractConfigured } from "./lib/env";
 import Create from "./pages/Create";
 import Home from "./pages/Home";
@@ -44,7 +46,11 @@ export default function App() {
         </div>
       </header>
 
+      <WalletPicker />
+
       <main className="page">
+        <WalletBanner />
+
         {!contractConfigured && (
           <div className="notice notice-bad" style={{ marginBottom: 18 }}>
             <strong>No contract configured.</strong> Set <code>VITE_BREEK_CONTRACT</code> to a

@@ -728,3 +728,73 @@ select:focus-visible {
     margin-bottom: 8px;
   }
 }
+
+/* --- wallet picker ------------------------------------------------------- */
+
+.modal-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(3, 4, 6, 0.72);
+  backdrop-filter: blur(3px);
+}
+
+.modal {
+  width: 100%;
+  max-width: 420px;
+  max-height: 86vh;
+  overflow-y: auto;
+  padding: 18px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+}
+
+.modal:focus {
+  outline: none;
+}
+
+.wallet-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.wallet-row {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  padding: 11px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  transition: border-color 0.12s, background 0.12s;
+}
+
+.wallet-row:hover:not(:disabled) {
+  border-color: var(--breek-dim);
+  background: #1b2029;
+}
+
+.wallet-row img {
+  border-radius: 7px;
+  flex: 0 0 auto;
+}
+
+.wallet-fallback {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  border-radius: 7px;
+  background: var(--line);
+  font-weight: 700;
+  font-size: 13px;
+  text-transform: uppercase;
+}

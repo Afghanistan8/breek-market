@@ -16,6 +16,8 @@ export const env = {
   chainId: Number(read("VITE_BREEK_CHAIN_ID", "61999")),
   rpc: read("VITE_BREEK_RPC", "https://studio.genlayer.com/api"),
   network: read("VITE_BREEK_NETWORK", "studionet"),
+  /** Human-readable name shown by the wallet when it adds the network. */
+  chainName: read("VITE_BREEK_CHAIN_NAME", "GenLayer Studio Network"),
   explorer: read("VITE_BREEK_EXPLORER", "https://genlayer-explorer.vercel.app"),
 } as const;
 

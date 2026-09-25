@@ -4,6 +4,7 @@ import { Link, useParams } from "react-router-dom";
 import { Evidence } from "../components/Evidence";
 import { PhaseTag } from "../components/PhaseTag";
 import { TxStatus } from "../components/TxStatus";
+import { WriteGate } from "../components/WriteGate";
 import {
   useClaim,
   useEvidence,
@@ -16,7 +17,6 @@ import {
 import { KIND_LABEL, fmtGen, marketTitle, sharePct, shortAddress } from "../lib/format";
 import { explorerAddress } from "../lib/env";
 import { fmtCountdown, fmtGmt1Long } from "../lib/gmt";
-import { useWallet } from "../lib/wallet";
 
 const STAKES = [2, 3, 4];
 
@@ -24,7 +24,6 @@ export default function MarketDetail() {
   const { id } = useParams();
   const marketId = Number(id);
   const now = useNow();
-  const { address } = useWallet();
 
   const market = useMarket(marketId);
   const position = usePosition(marketId);
@@ -210,17 +209,15 @@ export default function MarketDetail() {
             ))}
           </div>
 
-          <button
-            className="btn btn-primary"
-            disabled={!address || !chosen || stake.isPending}
-            onClick={() =>
-              chosen && stake.mutate({ marketId, side: chosen, gen: amount })
-            }
-          >
-            {!address
-              ? "Connect a wallet to stake"
-              : `Stake ${amount} GEN on ${chosen ?? "…"}`}
-          </button>
+          <WriteGate action="stake">
+            <button
+              className="btn btn-primary"
+              disabled={!chosen || stake.isPending}
+              onClick={() => chosen && stake.mutate({ marketId, side: chosen, gen: amount })}
+            >
+              {chosen ? `Stake ${amount} GEN on ${chosen}` : "Pick a side first"}
+            </button>
+          </WriteGate>
 
           <TxStatus pending={stake.isPending} error={stake.error} result={stake.data} />
         </section>
@@ -234,13 +231,15 @@ export default function MarketDetail() {
             You are not submitting a price; the contract fetches both feeds itself and every
             validator checks the result independently.
           </p>
-          <button
-            className="btn btn-primary"
-            disabled={!address || resolve.isPending}
-            onClick={() => resolve.mutate(marketId)}
-          >
-            {!address ? "Connect a wallet to settle" : "Settle from two feeds"}
-          </button>
+          <WriteGate action="settle">
+            <button
+              className="btn btn-primary"
+              disabled={resolve.isPending}
+              onClick={() => resolve.mutate(marketId)}
+            >
+              Settle from two feeds
+            </button>
+          </WriteGate>
           <TxStatus pending={resolve.isPending} error={resolve.error} result={resolve.data} />
         </section>
       )}
@@ -270,14 +269,17 @@ export default function MarketDetail() {
           </dl>
           {claimable && (
             <>
-              <button
-                className="btn btn-primary"
-                style={{ marginTop: 12 }}
-                disabled={claimIt.isPending}
-                onClick={() => claimIt.mutate(marketId)}
-              >
-                Claim {fmtGen(pos.claimable_wei)} GEN
-              </button>
+              <div style={{ marginTop: 12 }}>
+                <WriteGate action="claim">
+                  <button
+                    className="btn btn-primary"
+                    disabled={claimIt.isPending}
+                    onClick={() => claimIt.mutate(marketId)}
+                  >
+                    Claim {fmtGen(pos.claimable_wei)} GEN
+                  </button>
+                </WriteGate>
+              </div>
               <TxStatus pending={claimIt.isPending} error={claimIt.error} result={claimIt.data} />
             </>
           )}
