@@ -10,7 +10,7 @@ export const ConnectButton = () => {
         className="btn btn-sm mono"
         onClick={disconnect}
         title={`${connectedTo?.name ?? "Wallet"} — ${address}${
-          writesReady ? "" : " (cannot sign)"
+          writesReady ? "" : " (writes unavailable)"
         }. Click to disconnect.`}
       >
         {!writesReady && (

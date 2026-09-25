@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 
+import { env } from "../lib/env";
 import {
   METAMASK_INSTALL,
   SNAP_DOCS,
@@ -10,9 +11,10 @@ import {
 /**
  * Wallet chooser.
  *
- * Every wallet the browser announces is listed, including ones that cannot sign
- * a Breek transaction. Hiding them would be worse: someone with Rabby installed
- * and MetaMask disabled deserves to be told why, not to find an empty list.
+ * Every wallet the browser announces is listed, and any of them can sign:
+ * genlayer-js delegates `eth_sendTransaction` to whichever provider is chosen.
+ * The GenLayer MetaMask snap is flagged where available purely as a nicety --
+ * it renders GenLayer transactions in more detail -- and is never required.
  */
 export const WalletPicker = () => {
   const {
@@ -40,9 +42,6 @@ export const WalletPicker = () => {
 
   if (!pickerOpen) return null;
 
-  const signable = wallets.filter((w) => w.canSign);
-  const unsignable = wallets.filter((w) => !w.canSign);
-
   return (
     <div className="modal-scrim" onClick={closePicker} role="presentation">
       <div
@@ -69,8 +68,8 @@ export const WalletPicker = () => {
         </div>
 
         <p className="dim" style={{ fontSize: 12, marginTop: 0 }}>
-          Breek signs through the GenLayer MetaMask snap. Wallets without snap
-          support can connect and browse, but cannot sign transactions.
+          Any of these can sign on {env.network}. Breek sends a normal
+          transaction to the consensus contract, so no special plugin is needed.
         </p>
 
         {error && (
@@ -84,8 +83,8 @@ export const WalletPicker = () => {
         {!discovering && wallets.length === 0 && (
           <div className="stack" style={{ gap: 10 }}>
             <div className="notice notice-warn">
-              No wallet extension detected in this browser. Breek needs MetaMask
-              plus the GenLayer snap to sign transactions.
+              No wallet extension detected in this browser. Breek works with any
+              EIP-1193 wallet &mdash; MetaMask, OKX, Rabby and others.
             </div>
             <a className="btn btn-primary" href={METAMASK_INSTALL} target="_blank" rel="noreferrer">
               Install MetaMask
@@ -99,9 +98,9 @@ export const WalletPicker = () => {
           </div>
         )}
 
-        {signable.length > 0 && (
+        {wallets.length > 0 && (
           <div className="wallet-list">
-            {signable.map((w) => (
+            {wallets.map((w) => (
               <WalletRow
                 key={w.rdns}
                 wallet={w}
@@ -113,31 +112,6 @@ export const WalletPicker = () => {
           </div>
         )}
 
-        {unsignable.length > 0 && (
-          <>
-            <div className="eyebrow" style={{ margin: "16px 0 8px" }}>
-              Cannot sign on GenLayer
-            </div>
-            <div className="wallet-list">
-              {unsignable.map((w) => (
-                <WalletRow
-                  key={w.rdns}
-                  wallet={w}
-                  busy={connecting}
-                  connected={connectedTo?.rdns === w.rdns}
-                  onPick={() => void connect(w)}
-                />
-              ))}
-            </div>
-            <p className="dim" style={{ fontSize: 11, marginTop: 8 }}>
-              These wallets do not support MetaMask Snaps, so they cannot install
-              the GenLayer signing plugin.{" "}
-              <a href={SNAP_DOCS} target="_blank" rel="noreferrer" style={{ textDecoration: "underline" }}>
-                Why?
-              </a>
-            </p>
-          </>
-        )}
       </div>
     </div>
   );
@@ -165,7 +139,7 @@ const WalletRow = ({
     <span style={{ flex: 1, textAlign: "left" }}>
       <strong style={{ display: "block", fontSize: 13 }}>{wallet.name}</strong>
       <span className="dim" style={{ fontSize: 11 }}>
-        {wallet.canSign ? "Can sign GenLayer transactions" : "No Snaps support"}
+        {wallet.hasSnaps ? "Supports the optional GenLayer snap" : "Ready to sign"}
       </span>
     </span>
     {connected ? (

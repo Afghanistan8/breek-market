@@ -283,6 +283,36 @@ const summarise = (receipt: unknown): { status: string; returned?: string; error
   return { status, returned: readable?.replace(/^"|"$/g, "") };
 };
 
+/**
+ * Build the fee argument, when this SDK build has a fee API.
+ *
+ * genlayer-js 1.1.8 -- the version the genlayer CLI bundles and writes to
+ * studionet with -- exposes no fee estimation, and writes succeed without one.
+ * Newer builds document `estimateTransactionFeesForWrite`. Feature-detect it
+ * exactly as the CLI does rather than depending on either shape.
+ */
+const feesFor = async (
+  client: ReturnType<typeof createClient>,
+  write: { address: `0x${string}`; functionName: string; args: unknown[]; value: bigint },
+): Promise<Record<string, unknown> | null> => {
+  const estimate = (client as unknown as Record<string, unknown>)
+    .estimateTransactionFeesForWrite;
+  if (typeof estimate !== "function") return null;
+  try {
+    const result = await (estimate as (a: unknown) => Promise<unknown>).call(client, {
+      address: write.address,
+      functionName: write.functionName,
+      args: write.args,
+      value: write.value,
+    });
+    return result ? { fees: result } : null;
+  } catch (error) {
+    throw new WriteUnsupportedError(
+      `${env.network} could not price this transaction: ${(error as Error).message}`,
+    );
+  }
+};
+
 const send = async (
   client: ReturnType<typeof createClient>,
   functionName: string,
@@ -290,12 +320,14 @@ const send = async (
   value: bigint,
 ): Promise<WriteResult> => {
   await preflight(client);
-  const hash = await client.writeContract({
+  const write = {
     address: env.contract as `0x${string}`,
     functionName,
     args: args as never,
     value,
-  });
+  };
+  const fees = await feesFor(client, { ...write, args });
+  const hash = await client.writeContract({ ...write, ...(fees ?? {}) } as never);
   // writeContract hands back the hash already in the branded shape
   // waitForTransactionReceipt wants, so pass it straight through.
   type WaitArgs = Parameters<typeof client.waitForTransactionReceipt>[0];

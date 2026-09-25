@@ -1,14 +1,16 @@
 import type { ReactNode } from "react";
 
-import { SNAP_DOCS, useWallet } from "../lib/wallet";
+import { env } from "../lib/env";
+import { useWallet } from "../lib/wallet";
 
 /**
  * Tells the truth about whether this browser can sign a Breek transaction.
  *
- * Reads work for everyone, so the app stays browsable. Writing needs a wallet
- * that can host the GenLayer snap. When it cannot, say so once at the top of
- * the page and again beside the button that will not work, instead of letting
- * someone click into a dead end.
+ * Reads work for everyone, so the app stays browsable. Any EIP-1193 wallet can
+ * write; what can stop a write is the network failing to supply its consensus
+ * contract configuration. When that happens, report the exact error once at the
+ * top of the page and again beside the control, instead of letting someone
+ * click into a dead end.
  */
 export const WalletBanner = () => {
   const { address, writeBlocker, error } = useWallet();
@@ -24,10 +26,8 @@ export const WalletBanner = () => {
 
   return (
     <div className="notice notice-warn" style={{ marginBottom: 16 }}>
-      <strong>Connected, but this wallet cannot sign.</strong> {writeBlocker}{" "}
-      <a href={SNAP_DOCS} target="_blank" rel="noreferrer" style={{ textDecoration: "underline" }}>
-        About the GenLayer snap
-      </a>
+      <strong>Connected, but writes are unavailable on {env.network}.</strong>{" "}
+      {writeBlocker} Reads still work, so you can browse every market.
     </div>
   );
 };
@@ -59,7 +59,7 @@ export const WriteGate = ({
   if (!writesReady) {
     return (
       <div className="notice notice-warn">
-        Cannot {action} with this wallet. {writeBlocker ?? "Signing is unavailable."}
+        Cannot {action} right now: {writeBlocker ?? "the network did not return a usable fee/consensus configuration."}
       </div>
     );
   }
