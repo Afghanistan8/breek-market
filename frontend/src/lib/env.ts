@@ -18,7 +18,7 @@ export const env = {
   network: read("VITE_BREEK_NETWORK", "studionet"),
   /** Human-readable name shown by the wallet when it adds the network. */
   chainName: read("VITE_BREEK_CHAIN_NAME", "GenLayer Studio Network"),
-  explorer: read("VITE_BREEK_EXPLORER", "https://genlayer-explorer.vercel.app"),
+  explorer: read("VITE_BREEK_EXPLORER", "https://explorer-studio.genlayer.com"),
 } as const;
 
 export const isAddress = (value: string): boolean => /^0x[0-9a-fA-F]{40}$/.test(value);

@@ -85,7 +85,7 @@ settled at 116.58191598   (gate.io 116.61000000 / coingecko 116.55383196, gap 4 
 | Network | **studionet** (GenLayer Studio Network) |
 | Chain id | `61999` |
 | RPC | `https://studio.genlayer.com/api` |
-| Contract | [`0x4aDb6a8f9D0B920cC5699F75060324575C01E19a`](https://genlayer-explorer.vercel.app/address/0x4aDb6a8f9D0B920cC5699F75060324575C01E19a) |
+| Contract | [`0x4aDb6a8f9D0B920cC5699F75060324575C01E19a`](https://explorer-studio.genlayer.com/address/0x4aDb6a8f9D0B920cC5699F75060324575C01E19a) |
 | Runner | `py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6` |
 | Frontend | https://breek-market-puce.vercel.app/ |
 | `genlayer-js` | **1.1.8** (pinned exactly) |

@@ -14,7 +14,7 @@ Last updated: 2026-09-25.
 | Network | **studionet** (GenLayer Studio Network) |
 | Chain id | `61999` |
 | RPC | `https://studio.genlayer.com/api` |
-| Contract | [`0x4aDb6a8f9D0B920cC5699F75060324575C01E19a`](https://genlayer-explorer.vercel.app/address/0x4aDb6a8f9D0B920cC5699F75060324575C01E19a) |
+| Contract | [`0x4aDb6a8f9D0B920cC5699F75060324575C01E19a`](https://explorer-studio.genlayer.com/address/0x4aDb6a8f9D0B920cC5699F75060324575C01E19a) |
 | Runner | `py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6` |
 | Frontend | https://breek-market-puce.vercel.app/ |
 | `genlayer-js` | **1.1.8** (pinned exactly, no caret) |
@@ -89,6 +89,20 @@ Both through the permissionless `open_round`. No admin involved.
 deploy tx 0x2f84b32f91aef3c05318b72fd367f61e24af65a2a4a9bf12259944af7f325714
           MAJORITY_AGREE, FINALIZED
 ```
+
+### Transaction hashes, as the Studio explorer shows them
+
+All three FINALIZED with GenVM result SUCCESS:
+
+| Tx | Method |
+|---|---|
+| [`0x2f84b32f…7f325714`](https://explorer-studio.genlayer.com/tx/0x2f84b32f91aef3c05318b72fd367f61e24af65a2a4a9bf12259944af7f325714) | deploy |
+| [`0x4becfd92…079845a1`](https://explorer-studio.genlayer.com/tx/0x4becfd92f229c2aa6fbdc3ea11fffb40484b2d405f72bebfe840565f079845a1) | `open_round` (round 1, SOL) |
+| [`0xdc810014…3ad4a8d4`](https://explorer-studio.genlayer.com/tx/0xdc8100142806a843762a2119b9b2f507c2444e33203b32bb929670813ad4a8d4) | `open_round` (round 2, ETH) |
+
+Note the explorer host: `explorer-studio.genlayer.com`. The
+`genlayer-explorer.vercel.app` host used earlier in this repo returns **503**
+and every link through it was dead.
 
 ### Write paths verified on chain
 
