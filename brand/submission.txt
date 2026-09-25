@@ -1,0 +1,16 @@
+ONE-LINER
+Name a price for a GMT+1 window. The contract fetches two feeds itself and pays by how close you were.
+
+DESCRIPTION
+Breek runs forecasting rounds. A round asks what one asset will be worth at the end of a GMT+1 day or week. You pay a flat 1 GEN, submit a price, and may revise it free until the window opens. When it closes, anyone can trigger scoring: the contract fetches two independent public feeds itself inside an equivalence-principle block and grades everyone against the price they agree on.
+
+It is not a prediction market. There is no side to pick and no pool to win. Your payout is your accuracy weight over everyone's, so a call 0.4% off earns strictly more than one 3% off, and anything past 10% earns nothing.
+
+It is for people who would rather be measured on precision than on a coin flip, and who want a verifiable record of how good their calls are. What makes it useful is where the number comes from: the network produces it, not an admin. No owner, no pause, no privileged scorer. If the feeds disagree by more than 0.5%, the round voids and every fee is refunded.
+
+EXPECTED VERIFICATION OUTCOME
+The board shows a new round at the top with the next sequential id, the asset and GMT+1 window you chose, state "open", 0 entries, and a live countdown to when forecasts lock.
+
+The same round is readable on chain. get_round(<id>) returns your window bounds and locks_at/scoreable_at, and your open_round transaction appears in the Studio explorer against the contract as FINALIZED with GenVM result SUCCESS.
+
+Opening a round is non-payable, so this needs gas only and no GEN balance. If you do hold studionet GEN, entering a forecast for 1 GEN then shows your entry on the round page, sealed from the leaderboard until the round is scored.

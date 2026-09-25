@@ -2,6 +2,13 @@
   "name": "breek-market-app",
   "private": true,
   "version": "1.0.0",
+  "description": "Breek - a forecast accuracy contest on GenLayer.",
+  "author": "Afghanistan8 (https://github.com/Afghanistan8)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Afghanistan8/breek-market.git"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",
