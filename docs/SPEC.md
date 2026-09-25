@@ -314,7 +314,7 @@ These affect development, not the deployed contract.
   `runners/…` while the current release relocated them to
   `executor/v0.2.17/legacy-runners/…`, so it reports
   `filename 'runners/py-genlayer/1j/…tar' not found`. `genvm-lint lint` passes
-  cleanly and is what CI runs; semantic checking is covered instead by 188 tests
+  cleanly and is the check to run; semantic checking is covered instead by 188 tests
   that execute the real contract through the real runner.
 * **`genlayer` CLI 0.39.2 has no `--value` flag**, so `take_position` cannot be
   called from it. Use the frontend or `scripts/net_exercise.py`.

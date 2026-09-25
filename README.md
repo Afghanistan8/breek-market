@@ -29,13 +29,6 @@ pass prices, URLs, slugs, winners, directions or results.
 | Runner | `py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6` |
 | `genlayer` CLI | **0.39.2** |
 | `genlayer-test` | 0.29.2 · `genvm-linter` 0.11.0 · `genlayer-js` 0.15.1 |
-| Frontend | [`breek-market-afghanistan8s-projects.vercel.app`](https://breek-market-afghanistan8s-projects.vercel.app) |
-
-> The Vercel deployment currently sits behind **Deployment Protection**
-> (Vercel Authentication), so it asks for a Vercel login. To make it public:
-> Vercel dashboard → the `breek-market` project → Settings → Deployment
-> Protection → set Vercel Authentication to *Disabled*, or add a protection
-> bypass. Running `npm run dev` in `frontend/` needs none of this.
 
 ---
 
@@ -297,8 +290,8 @@ These affect tooling, not the deployed contract. Details and workarounds in
   `contract_error: invalid_contract`. Breek pins the runner by content hash.
 - **`genvm-lint validate` cannot load the SDK** on the current release (it looks
   under `runners/…` while the artifacts moved to
-  `executor/v0.2.17/legacy-runners/…`). `genvm-lint lint` passes and is what CI
-  runs.
+  `executor/v0.2.17/legacy-runners/…`). `genvm-lint lint` passes and is the
+  check to run.
 
 ```bash
 # stake and create REL markets on a deployed contract
