@@ -28,7 +28,13 @@ pass prices, URLs, slugs, winners, directions or results.
 | Contract | [`0xC69eDF8Cd4d723002d1d658CAB3AD616A34532d7`](https://genlayer-explorer.vercel.app/address/0xC69eDF8Cd4d723002d1d658CAB3AD616A34532d7) |
 | Runner | `py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6` |
 | `genlayer` CLI | **0.39.2** |
-| `genlayer-test` | 0.29.2 · `genvm-linter` 0.11.0 · `genlayer-js` 0.15.1 |
+| `genlayer-test` | 0.29.2 · `genvm-linter` 0.11.0 |
+| `genlayer-js` | **1.1.8** (pinned exactly) |
+| Frontend | https://breek-market-puce.vercel.app/ |
+| Browser writes | **working** — any EIP-1193 wallet (MetaMask, OKX, Rabby…) |
+
+Live status, executed transactions and what has *not* been executed:
+[`docs/LIVE.md`](docs/LIVE.md).
 
 ---
 
