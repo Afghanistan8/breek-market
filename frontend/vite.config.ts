@@ -1,20 +1,15 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-// The price charts on the market page are display-only. They are fetched
-// through this dev proxy purely to dodge CORS in local development; nothing the
-// browser sees ever reaches the contract, which fetches its own prices.
+// No dev proxy. Both display feeds (gate.io and coingecko) send permissive CORS
+// headers and are called straight from the browser -- verified against both
+// endpoints from a browser origin. A proxy would only exist in development and
+// would therefore hide a production failure rather than prevent one.
+//
+// Those display prices never reach the contract; it fetches its own inside the
+// equivalence block. See src/lib/prices.ts.
 export default defineConfig({
   plugins: [react()],
-  server: {
-    port: 5173,
-    proxy: {
-      "/px/gate": {
-        target: "https://api.gateio.ws",
-        changeOrigin: true,
-        rewrite: (p) => p.replace(/^\/px\/gate/, ""),
-      },
-    },
-  },
+  server: { port: 5173 },
   build: { outDir: "dist", sourcemap: true },
 });

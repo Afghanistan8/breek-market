@@ -226,5 +226,31 @@ has no usable fee/consensus configuration. A doomed transaction costs a
 signature and teaches the user nothing, so it fails before send with a message
 naming the network.
 
-Prices shown in the interface are display-only and are never sent to the
-contract.
+### Live prices in the interface
+
+`src/lib/prices.ts` fetches spot prices in the viewer's browser so somebody
+deciding what to forecast can see where the asset is actually trading. It calls
+the same two endpoints the contract settles against — gate.io and coingecko —
+and shows them side by side with the gap between them in basis points, which
+doubles as a live preview of settlement: a gap inside the tolerance means the
+round will price cleanly, and a gap outside it is a standing warning that the
+round could void and refund.
+
+That data is display-only, and the separation is absolute: no value it produces
+is ever passed to `submit_forecast`, `revise_forecast` or `score_round` as an
+argument. The only route from a displayed number into a transaction is a human
+reading it and choosing to type it. The contract fetches its own prices inside
+`gl.eq_principle.strict_eq`, and nothing in the browser can put a number in
+front of it — which is the whole reason the protocol needs GenLayer.
+
+Both endpoints send permissive CORS headers and are called straight from the
+page; there is deliberately no dev proxy, because a proxy would only exist in
+development and would therefore hide a production failure rather than prevent
+one.
+
+Degradation is graded, because a price feed is a convenience and must never
+gate an entry. Both feeds live shows the midpoint and the gap; one feed live
+shows that feed's price and says the gap is unavailable; a failed refresh keeps
+the last good price and labels it stale; nothing at all shows a short note
+saying the price is unavailable and that scoring is unaffected. In every case
+the forecast input stays usable.

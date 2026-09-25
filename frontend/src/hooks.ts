@@ -21,6 +21,7 @@ import {
   type WriteResult,
 } from "./lib/breek";
 import { contractConfigured } from "./lib/env";
+import { fetchCatalogPrices, fetchFeedPair } from "./lib/prices";
 import { useWallet } from "./lib/wallet";
 
 const enabled = { enabled: contractConfigured };
@@ -88,6 +89,34 @@ export const useMyEntries = () => {
     enabled: contractConfigured && Boolean(address),
   });
 };
+
+// ---------------------------------------------------------------------------
+// Live prices -- DISPLAY ONLY. See the header of lib/prices.ts: nothing these
+// return is ever passed to the contract as an argument.
+// ---------------------------------------------------------------------------
+
+/** Spot prices for the whole catalog, batched into one request for the board. */
+export const useCatalogPrices = (symbols: string[]) =>
+  useQuery({
+    queryKey: ["prices", [...symbols].sort().join(",")],
+    queryFn: () => fetchCatalogPrices(symbols),
+    enabled: symbols.length > 0,
+    refetchInterval: 45_000,
+    staleTime: 30_000,
+    // A missing price must never take the page down with it.
+    retry: 1,
+  });
+
+/** Both settlement feeds for one asset, so a forecaster can see the spread. */
+export const useFeedPair = (symbol: string | undefined) =>
+  useQuery({
+    queryKey: ["feedPair", symbol],
+    queryFn: () => fetchFeedPair(symbol as string),
+    enabled: Boolean(symbol),
+    refetchInterval: 30_000,
+    staleTime: 20_000,
+    retry: 1,
+  });
 
 /** A ticking clock so countdowns move without refetching the chain. */
 export const useNow = (): number => {

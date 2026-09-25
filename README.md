@@ -121,6 +121,12 @@ A real agreed payload:
 f1|CRYPTO|SOL|DAILY|2026-09-24|gate.io|coingecko|116.61000000|116.55383196|4|116.58191598
 ```
 
+The interface shows you those same two feeds live while you are deciding, with
+the gap between them, so you can see where the asset is trading and whether the
+round is currently at risk of voiding. That display is exactly that — a display.
+No number in the browser is ever passed to the contract; it goes and gets its
+own. The only way a price you see becomes a price you forecast is you typing it.
+
 After the block returns, the contract re-derives everything offline — re-binding
 the payload to this round and this window, recomputing the gap and the midpoint.
 A payload that merely asserts a price is rejected with `INVARIANT:`.

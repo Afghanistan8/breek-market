@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { RoundRow } from "../components/RoundRow";
-import { useCatalog, useNow, useRounds, useStats } from "../hooks";
+import { useCatalog, useCatalogPrices, useNow, useRounds, useStats } from "../hooks";
 import { bpsAsPct, fmtGen } from "../lib/format";
 
 type Filter = "open" | "scoreable" | "scored" | "all";
@@ -39,6 +39,14 @@ export default function Board() {
         return all;
     }
   }, [all, filter]);
+
+  // One request covers the whole board: the distinct assets on screen, not one
+  // lookup per row. Display only -- nothing here reaches the contract.
+  const symbols = useMemo(
+    () => Array.from(new Set(shown.map((r) => r.asset))),
+    [shown],
+  );
+  const prices = useCatalogPrices(symbols);
 
   const fee = catalog.data ? fmtGen(catalog.data.entry_fee_wei) : "1";
   const cutoff = catalog.data ? bpsAsPct(catalog.data.score_cutoff_bps, 0) : "10%";
@@ -132,13 +140,19 @@ export default function Board() {
           <div className="board-head">
             <span>#</span>
             <span>Asset / window</span>
+            <span>Live now</span>
             <span>Timing</span>
             <span>Field</span>
             <span>State</span>
             <span />
           </div>
           {shown.map((r) => (
-            <RoundRow key={r.round_id} round={r} now={now} />
+            <RoundRow
+              key={r.round_id}
+              round={r}
+              now={now}
+              price={prices.data?.[r.asset]}
+            />
           ))}
         </div>
       )}

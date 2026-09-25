@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { Leaderboard } from "../components/Leaderboard";
+import { LivePrice } from "../components/LivePrice";
 import { PriceEvidence } from "../components/PriceEvidence";
 import { StatusChip } from "../components/RoundRow";
 import { TxStatus } from "../components/TxStatus";
@@ -27,6 +28,7 @@ import {
   trimPrice,
 } from "../lib/format";
 import { fmtCountdown, fmtGmt1Long } from "../lib/gmt";
+import { hasFeeds } from "../lib/prices";
 import { useWallet } from "../lib/wallet";
 
 export default function RoundDetail() {
@@ -67,6 +69,12 @@ export default function RoundDetail() {
   const accepting = r.phase === "ACCEPTING";
   const scoreable = r.phase === "AWAITING_SCORE";
   const collectable = mine && !mine.collected && BigInt(mine.collectable_wei || "0") > 0n;
+
+  // Live context is worth showing while the outcome is still unknown. Once a
+  // round is scored the settled price is the number that matters, and a spot
+  // quote next to it would only invite confusion.
+  const showLive = hasFeeds(r.asset) && (accepting || r.phase === "LOCKED");
+  const toleranceBps = Number(catalog.data?.tolerance_bps ?? 50);
 
   // Mirror the contract's own acceptance rules so a doomed entry is caught
   // before it costs a signature. The bound comes from the catalog rather than
@@ -188,6 +196,16 @@ export default function RoundDetail() {
             </p>
           )}
 
+          {showLive && (
+            <div style={{ marginBottom: 14 }}>
+              <LivePrice
+                symbol={r.asset}
+                toleranceBps={toleranceBps}
+                onUse={setDraft}
+              />
+            </div>
+          )}
+
           <label className="field" style={{ marginBottom: inputProblem ? 8 : 12 }}>
             {r.asset} price at close
             <input
@@ -230,6 +248,19 @@ export default function RoundDetail() {
 
           <TxStatus pending={submit.isPending} error={submit.error} result={submit.data} />
           <TxStatus pending={revise.isPending} error={revise.error} result={revise.data} />
+        </section>
+      )}
+
+      {showLive && !accepting && (
+        <section className="panel panel-pad">
+          <div className="section-rule">
+            <span>Where it is trading now</span>
+          </div>
+          <p className="dim" style={{ fontSize: 12, marginTop: 0 }}>
+            Forecasts are locked. This is only here so you can watch the window
+            play out.
+          </p>
+          <LivePrice symbol={r.asset} toleranceBps={toleranceBps} />
         </section>
       )}
 

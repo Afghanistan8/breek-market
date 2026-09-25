@@ -3,11 +3,22 @@ import { Link } from "react-router-dom";
 import type { Round } from "../lib/breek";
 import { fmtGen, trimPrice } from "../lib/format";
 import { fmtCountdown, fmtGmt1 } from "../lib/gmt";
+import { fmtChange, fmtPrice, type SpotPrice } from "../lib/prices";
 
 /** One line on the board. Rounds are a list, not a deck of cards. */
-export const RoundRow = ({ round, now }: { round: Round; now: number }) => {
+export const RoundRow = ({
+  round,
+  now,
+  price,
+}: {
+  round: Round;
+  now: number;
+  /** Where the asset is trading right now. Display only -- see lib/prices.ts. */
+  price?: SpotPrice;
+}) => {
   const locks = Number(round.locks_at);
   const scoreable = Number(round.scoreable_at);
+  const up = (price?.change24h ?? 0) >= 0;
 
   return (
     <Link to={`/round/${round.round_id}`} className="board-row focus-ring">
@@ -22,6 +33,25 @@ export const RoundRow = ({ round, now }: { round: Round; now: number }) => {
           {round.timeframe === "WEEKLY" ? "week of " : ""}
           {round.window_id} · closes {fmtGmt1(Number(round.window_end))}
         </div>
+      </span>
+
+      {/* Spot price, so the list can be read for context and not just state. */}
+      <span className="board-hide mono">
+        {price ? (
+          <>
+            <span className="board-spot">{fmtPrice(price.usd)}</span>
+            {price.change24h !== null && (
+              <div
+                className="board-sub mono"
+                style={{ color: up ? "var(--signal)" : "var(--drift)" }}
+              >
+                {fmtChange(price.change24h)} 24h
+              </div>
+            )}
+          </>
+        ) : (
+          <span className="dim">—</span>
+        )}
       </span>
 
       <span className="board-hide mono muted">
@@ -58,6 +88,13 @@ export const RoundRow = ({ round, now }: { round: Round; now: number }) => {
       </span>
 
       <span className="board-compact" style={{ textAlign: "right" }}>
+        {/* On a narrow screen the price rides along with the status chip, since
+            it is the one column worth keeping when the rest collapses. */}
+        {price && (
+          <div className="board-sub mono" style={{ marginBottom: 4 }}>
+            {fmtPrice(price.usd)}
+          </div>
+        )}
         <StatusChip round={round} compact />
       </span>
     </Link>

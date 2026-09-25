@@ -415,7 +415,7 @@ h3 {
 .board-head,
 .board-row {
   display: grid;
-  grid-template-columns: 46px 1.6fr 1fr 1fr 0.9fr 84px;
+  grid-template-columns: 46px 1.5fr 0.9fr 1fr 1fr 0.8fr 84px;
   gap: 12px;
   align-items: center;
   padding: 10px 14px;
@@ -457,6 +457,76 @@ h3 {
 .board-sub {
   font-size: 11px;
   color: var(--dim);
+}
+
+.board-spot {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+/* --- live price (display only) ------------------------------------------- */
+
+.livebox {
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--feed-a);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  padding: 13px 14px;
+}
+
+.livebox-main {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.livebox-label {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.livebox-price {
+  font-size: 24px;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+  margin: 2px 0;
+}
+
+.livebox-feeds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 20px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--hair);
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.livebox-feeds span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.livebox-feeds em {
+  font-style: normal;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.livebox-feeds b {
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
 }
 
 /* --- accuracy bars ------------------------------------------------------- */
