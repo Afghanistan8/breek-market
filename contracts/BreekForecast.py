@@ -33,6 +33,7 @@ All lifecycle time comes from consensus time (``gl.message_raw['datetime']``),
 never a host clock. All scoring and payout maths is integer only.
 """
 
+import hashlib
 import json
 from dataclasses import dataclass
 
@@ -87,15 +88,57 @@ MAX_FORECAST = 10**18 * PRICE_SCALE
 PAYLOAD_VERSION = "f1"
 PAYLOAD_FIELDS = 11
 
+# ---------------------------------------------------------------------------
+# Commitment scheme
+# ---------------------------------------------------------------------------
+#
+# A forecast must not be readable by anyone -- entrant, observer or contract
+# reader -- until entries have closed. A blockchain cannot hide a plaintext
+# argument: the calldata of a transaction is public the moment it is broadcast,
+# so withholding a number in a view method conceals nothing. Concealment has to
+# happen before the value ever reaches the chain.
+#
+# So entering takes a hash, not a price:
+#
+#     commitment = sha256("c1|<round_id>|<sender>|<scaled forecast>|<salt>")
+#
+# and the price itself is supplied later, during the reveal window, where the
+# contract recomputes the digest and compares. A forecast that does not hash to
+# the committed value is not accepted, so nobody can change their mind after
+# the fact.
+#
+# Both the round id and the sender are inside the preimage, and that is load
+# bearing. Without the sender, an observer could copy somebody else's
+# commitment, submit it as their own, wait for the original to be revealed, and
+# replay that (forecast, salt) pair to reveal an identical entry -- stealing an
+# accurate forecast without producing one. Binding to the sender makes a copied
+# digest unrevealable by anyone else. Binding to the round stops a commitment
+# being carried between rounds.
+COMMIT_VERSION = "c1"
+
+#: A sha256 digest as lowercase hex.
+COMMITMENT_HEX_LEN = 64
+
+#: The salt is what makes the digest unguessable. Prices live in a small space:
+#: a forecast of SOL is some number of dollars and cents, and an attacker who
+#: knows the scheme could hash every plausible price in seconds. The salt has
+#: to be long enough that the preimage cannot be enumerated, so a minimum is
+#: enforced by the contract rather than left to the client.
+SALT_MIN_LEN = 16
+SALT_MAX_LEN = 64
+
+HEX_DIGITS = "0123456789abcdef"
+
 # Round outcomes.
 STATUS_SCORED = "SCORED"
 STATUS_VOID_SPREAD = "VOID_SPREAD"
 STATUS_VOID_EXPIRED = "VOID_EXPIRED"
 STATUS_VOID_NO_SCORES = "VOID_NO_SCORES"
+STATUS_VOID_NO_REVEALS = "VOID_NO_REVEALS"
 
 # Phases are derived from consensus time, never stored.
 PHASE_ACCEPTING = "ACCEPTING"
-PHASE_LOCKED = "LOCKED"
+PHASE_REVEALING = "REVEALING"
 PHASE_AWAITING_SCORE = "AWAITING_SCORE"
 PHASE_SCORED = "SCORED"
 PHASE_VOID = "VOID"
@@ -296,6 +339,32 @@ def _json_number_to_scaled(value) -> int:
     raise gl.vm.UserError(E_EXTERNAL + "NOT_A_NUMBER")
 
 
+def _is_lower_hex(text: str, lo: int, hi: int) -> bool:
+    """Lowercase hex of a bounded length, and nothing else.
+
+    Case is pinned deliberately. If both cases were accepted, the same salt
+    would produce two different digests depending on how a client happened to
+    format it, and a reveal would fail for reasons nobody could see.
+    """
+    if len(text) < lo or len(text) > hi:
+        return False
+    for ch in text:
+        if ch not in HEX_DIGITS:
+            return False
+    return True
+
+
+def _commitment(round_id: int, who: str, scaled: int, salt: str) -> str:
+    """The digest an entrant commits to, and the one reveal must reproduce.
+
+    ``who`` is the entrant's lowercase address. Every field is rendered
+    canonically -- decimal integers, lowercase hex -- so the same inputs give
+    the same digest on any client, in any language.
+    """
+    preimage = "%s|%d|%s|%d|%s" % (COMMIT_VERSION, round_id, who, scaled, salt)
+    return hashlib.sha256(preimage.encode("utf-8")).hexdigest()
+
+
 def _scaled_to_dec(value: int) -> str:
     whole = value // PRICE_SCALE
     frac = value % PRICE_SCALE
@@ -371,7 +440,9 @@ class Round:
     opened_at: u64
     pot: u256
     entrants: u64
-    status: str            # "", SCORED, VOID_SPREAD, VOID_EXPIRED, VOID_NO_SCORES
+    revealed: u64          # how many entrants opened their commitment in time
+    status: str            # "", SCORED, VOID_SPREAD, VOID_EXPIRED, VOID_NO_SCORES,
+                           # VOID_NO_REVEALS
     consensus: u256        # the scaled price the round was graded against
     total_weight: u256     # sum of every entry's accuracy weight
     scored_at: u64
@@ -381,8 +452,11 @@ class Round:
 @allow_storage
 @dataclass
 class Entry:
-    forecast: u256         # scaled price
+    commitment: str        # sha256 hex; the only thing stored before reveal
+    forecast: u256         # scaled price -- stays 0 until the entry is revealed
+    revealed: bool
     submitted_at: u64
+    revealed_at: u64
     revisions: u64
     claimed: bool
 
@@ -437,7 +511,10 @@ class BreekForecast(gl.Contract):
         if now < int(r.locks_at):
             return PHASE_ACCEPTING
         if now < int(r.scoreable_at):
-            return PHASE_LOCKED
+            # Entries are closed and reveals are open. These are the same
+            # instant on purpose: a forecast becomes readable exactly when it
+            # can no longer be changed or copied into a new entry.
+            return PHASE_REVEALING
         return PHASE_AWAITING_SCORE
 
     def _pay(self, to: Address, amount: int) -> None:
@@ -498,6 +575,7 @@ class BreekForecast(gl.Contract):
             opened_at=u64(now),
             pot=u256(0),
             entrants=u64(0),
+            revealed=u64(0),
             status="",
             consensus=u256(0),
             total_weight=u256(0),
@@ -511,8 +589,14 @@ class BreekForecast(gl.Contract):
     # -- enter --------------------------------------------------------------
 
     @gl.public.write.payable
-    def submit_forecast(self, round_id: int, forecast: str) -> str:
-        """Enter a round with a price, for a flat fee.
+    def commit_forecast(self, round_id: int, commitment: str) -> str:
+        """Enter a round with a sealed forecast, for a flat fee.
+
+        The argument is a digest, never a price. Transaction calldata is public
+        the instant it is broadcast, so a contract that accepted a plaintext
+        forecast would publish it no matter how carefully its view methods were
+        written. The price is supplied later, to ``reveal_forecast``, once
+        entries have closed and it can no longer be copied.
 
         One entry per wallet. The fee is identical for everyone, so nothing but
         accuracy separates a large payout from a small one.
@@ -551,18 +635,19 @@ class BreekForecast(gl.Contract):
             self._pay(sender, value)
             return "REFUNDED:ROUND_FULL"
 
-        try:
-            scaled = _dec_to_scaled(forecast)
-        except Exception:
+        # The digest is checked for shape only. Its contents cannot be
+        # validated here without the preimage, which is exactly the point --
+        # the contract must not be able to tell what was forecast either.
+        if not _is_lower_hex(commitment, COMMITMENT_HEX_LEN, COMMITMENT_HEX_LEN):
             self._pay(sender, value)
-            return "REFUNDED:BAD_FORECAST"
-        if scaled <= 0 or scaled > MAX_FORECAST:
-            self._pay(sender, value)
-            return "REFUNDED:BAD_FORECAST"
+            return "REFUNDED:BAD_COMMITMENT"
 
         book[sender] = Entry(
-            forecast=u256(scaled),
+            commitment=commitment,
+            forecast=u256(0),
+            revealed=False,
             submitted_at=u64(now),
+            revealed_at=u64(0),
             revisions=u64(0),
             claimed=False,
         )
@@ -572,15 +657,19 @@ class BreekForecast(gl.Contract):
         r.entrants = u64(int(r.entrants) + 1)
         r.pot = u256(int(r.pot) + value)
         self.total_entries = u256(int(self.total_entries) + 1)
-        return "ENTERED:" + _scaled_to_dec(scaled)
+        return "COMMITTED:" + commitment
 
     @gl.public.write
-    def revise_forecast(self, round_id: int, forecast: str) -> str:
-        """Change your number, free, any time before the window opens.
+    def revise_commitment(self, round_id: int, commitment: str) -> str:
+        """Replace your sealed forecast, free, any time before entries close.
 
         A prediction market locks you to a side because the side is the bet.
         Here the bet is precision, so there is no reason to punish someone for
         sharpening their estimate as the window approaches.
+
+        Only the digest changes. Nothing observable distinguishes a revision to
+        a nearby price from a revision to a distant one, so revising leaks no
+        more than entering did.
         """
         sender = gl.message.sender_address
         now = _now()
@@ -594,13 +683,67 @@ class BreekForecast(gl.Contract):
         if entry is None:
             raise gl.vm.UserError(E_EXPECTED + "NOT_ENTERED")
 
+        if not _is_lower_hex(commitment, COMMITMENT_HEX_LEN, COMMITMENT_HEX_LEN):
+            raise gl.vm.UserError(E_EXPECTED + "BAD_COMMITMENT")
+
+        entry.commitment = commitment
+        entry.revisions = u64(int(entry.revisions) + 1)
+        return "REVISED:" + commitment
+
+    # -- reveal -------------------------------------------------------------
+
+    @gl.public.write
+    def reveal_forecast(self, round_id: int, forecast: str, salt: str) -> str:
+        """Open your commitment, once entries have closed.
+
+        The contract recomputes the digest from the price, the salt, this round
+        and your address, and accepts the reveal only if it reproduces exactly
+        what was committed. A forecast that does not hash to the stored value is
+        not the forecast that was entered, so it is refused.
+
+        The window is ``[locks_at, scoreable_at)`` -- it opens the moment
+        entries close and shuts the moment the round becomes scoreable. Both
+        ends matter. Revealing any earlier would hand a live forecast to
+        somebody still able to enter. Revealing any later would mean revealing
+        after the settling price is knowable, which is precisely when a
+        selective reveal becomes worth something.
+
+        An unrevealed entry scores nothing and its fee stays in the pot. See
+        ``collect`` for why that is deliberate rather than harsh.
+        """
+        sender = gl.message.sender_address
+        now = _now()
+        r = self._round(round_id)
+
+        if r.status != "":
+            raise gl.vm.UserError(E_EXPECTED + "ROUND_CLOSED")
+        if now < int(r.locks_at):
+            raise gl.vm.UserError(E_EXPECTED + "REVEAL_NOT_OPEN")
+        if now >= int(r.scoreable_at):
+            raise gl.vm.UserError(E_EXPECTED + "REVEAL_CLOSED")
+
+        book = self.entries.get(u256(round_id))
+        entry = book.get(sender) if book is not None else None
+        if entry is None:
+            raise gl.vm.UserError(E_EXPECTED + "NOT_ENTERED")
+        if entry.revealed:
+            raise gl.vm.UserError(E_EXPECTED + "ALREADY_REVEALED")
+
+        if not _is_lower_hex(salt, SALT_MIN_LEN, SALT_MAX_LEN):
+            raise gl.vm.UserError(E_EXPECTED + "BAD_SALT")
+
         scaled = _dec_to_scaled(forecast)
         if scaled <= 0 or scaled > MAX_FORECAST:
             raise gl.vm.UserError(E_EXPECTED + "BAD_FORECAST")
 
+        if _commitment(round_id, _lower_hex(sender), scaled, salt) != entry.commitment:
+            raise gl.vm.UserError(E_EXPECTED + "COMMITMENT_MISMATCH")
+
         entry.forecast = u256(scaled)
-        entry.revisions = u64(int(entry.revisions) + 1)
-        return "REVISED:" + _scaled_to_dec(scaled)
+        entry.revealed = True
+        entry.revealed_at = u64(now)
+        r.revealed = u64(int(r.revealed) + 1)
+        return "REVEALED:" + _scaled_to_dec(scaled)
 
     # -- score --------------------------------------------------------------
 
@@ -627,6 +770,18 @@ class BreekForecast(gl.Contract):
             r.evidence = PAYLOAD_VERSION + "|EXPIRED|" + str(int(r.expires_at))
             self.rounds_void = u256(int(self.rounds_void) + 1)
             return "VOID:EXPIRED"
+
+        # Nobody opened their commitment, so there is nothing to grade and no
+        # reason to ask two feeds for a price that cannot be used. Refund.
+        # This is checked before any HTTP for the same reason the expiry path
+        # is: a round that cannot produce a result should not spend requests
+        # discovering that.
+        if int(r.entrants) > 0 and int(r.revealed) == 0:
+            r.status = STATUS_VOID_NO_REVEALS
+            r.scored_at = u64(now)
+            r.evidence = PAYLOAD_VERSION + "|NO_REVEALS|" + str(int(r.entrants))
+            self.rounds_void = u256(int(self.rounds_void) + 1)
+            return "VOID:NO_REVEALS"
 
         asset = r.asset
         category = r.category
@@ -702,6 +857,11 @@ class BreekForecast(gl.Contract):
         for i in range(len(roster)):
             entry = book.get(roster[i])
             if entry is None:
+                continue
+            if not entry.revealed:
+                # An unrevealed entry has no number, so it has no accuracy.
+                # It contributes nothing to the denominator either, which
+                # means it cannot dilute the people who did reveal.
                 continue
             total += _accuracy_weight(_error_bps(int(entry.forecast), consensus))
         return total
@@ -780,9 +940,27 @@ class BreekForecast(gl.Contract):
         entry.claimed = True
 
         if r.status != STATUS_SCORED:
+            # Every void refunds in full, including entries that were never
+            # revealed. A forfeit only makes sense against a pot that was
+            # actually distributed; there is no pot here.
             self.total_paid = u256(int(self.total_paid) + ENTRY_FEE)
             self._pay(sender, ENTRY_FEE)
             return "COLLECTED:" + str(ENTRY_FEE) + ":REFUND_" + r.status
+
+        if not entry.revealed:
+            # The fee stays in the pot, which the revealers divide.
+            #
+            # Refunding instead would break the contest. Reveals happen while
+            # the window is still running, so an entrant who commits from
+            # several wallets at several prices could wait, watch, and open
+            # only the wallet that aged well -- buying many attempts and paying
+            # for one. Forfeiting makes that cost the full stake for every
+            # commitment abandoned, which is what removes the edge.
+            #
+            # Nothing is stranded: the forfeited fee is paid out to the people
+            # who did reveal, and if nobody revealed the round voids under
+            # VOID_NO_REVEALS and everyone is refunded above.
+            return "COLLECTED:0:NOT_REVEALED"
 
         weight = _accuracy_weight(_error_bps(int(entry.forecast), int(r.consensus)))
         if weight == 0 or int(r.total_weight) == 0:
@@ -823,6 +1001,12 @@ class BreekForecast(gl.Contract):
             "entry_fee_wei": str(ENTRY_FEE),
             "gen_wei": str(GEN),
             "max_forecast": _scaled_to_dec(MAX_FORECAST),
+            "commit_version": COMMIT_VERSION,
+            "commit_preimage": "c1|<round_id>|<sender_lowercase_hex>|<scaled>|<salt>",
+            "commit_hash": "sha256-hex",
+            "price_scale": str(PRICE_SCALE),
+            "salt_min_len": str(SALT_MIN_LEN),
+            "salt_max_len": str(SALT_MAX_LEN),
             "tolerance_bps": str(TOLERANCE_BPS),
             "score_cutoff_bps": str(SCORE_CUTOFF_BPS),
             "max_entries": str(MAX_ENTRIES),
@@ -862,15 +1046,30 @@ class BreekForecast(gl.Contract):
 
     @gl.public.view
     def get_entry(self, round_id: int, who: str) -> dict:
+        """One entrant's standing in one round.
+
+        This view takes any address, so it is the obvious way to try to read
+        somebody else's forecast. It cannot: the price is returned only once
+        that entry has been revealed, and an entry cannot be revealed before
+        entries close. The guard is ``entry.revealed`` rather than a comparison
+        against the clock, so there is no window where a phase is computed one
+        way here and another way in ``reveal_forecast``.
+
+        Before the reveal the caller gets the commitment, which is a sha256
+        digest over a salted preimage and tells them nothing about the number.
+        """
         r = self._round(round_id)
         addr = Address(who)
         book = self.entries.get(u256(round_id))
         entry = book.get(addr) if book is not None else None
+        revealed = entry is not None and entry.revealed
         out = {
             "round_id": str(round_id),
             "who": _lower_hex(addr),
             "entered": entry is not None,
-            "forecast": _scaled_to_dec(int(entry.forecast)) if entry is not None else "",
+            "commitment": entry.commitment if entry is not None else "",
+            "revealed": revealed,
+            "forecast": _scaled_to_dec(int(entry.forecast)) if revealed else "",
             "revisions": str(int(entry.revisions)) if entry is not None else "0",
             "collected": entry.claimed if entry is not None else False,
             "error_bps": "",
@@ -884,6 +1083,9 @@ class BreekForecast(gl.Contract):
             out["outcome"] = "REFUND_" + r.status
             if not entry.claimed:
                 out["collectable_wei"] = str(ENTRY_FEE)
+            return out
+        if not revealed:
+            out["outcome"] = "NOT_REVEALED"
             return out
         error = _error_bps(int(entry.forecast), int(r.consensus))
         weight = _accuracy_weight(error)
@@ -903,8 +1105,9 @@ class BreekForecast(gl.Contract):
     def get_leaderboard(self, round_id: int, limit: int) -> dict:
         """Everyone in the round, ordered by accuracy once it has been scored.
 
-        Before scoring this returns entrants without their numbers: publishing
-        live forecasts would let a late entrant simply copy the crowd.
+        A row carries a forecast only once that entrant has revealed it, which
+        cannot happen while entries are still open. Publishing live forecasts
+        would let a late entrant simply copy the crowd.
         """
         r = self._round(round_id)
         if limit <= 0 or limit > MAX_PAGE:
@@ -923,25 +1126,33 @@ class BreekForecast(gl.Contract):
                     "who": _lower_hex(addr),
                     "revisions": str(int(entry.revisions)),
                     "collected": entry.claimed,
+                    "revealed": entry.revealed,
                     "forecast": "",
                     "error_bps": "",
                     "weight": "",
                     "share_wei": "0",
                 }
-                if r.status != "":
+                if entry.revealed:
                     row["forecast"] = _scaled_to_dec(int(entry.forecast))
-                if scored:
-                    error = _error_bps(int(entry.forecast), int(r.consensus))
-                    weight = _accuracy_weight(error)
-                    row["error_bps"] = str(error)
-                    row["weight"] = str(weight)
-                    if weight > 0:
-                        row["share_wei"] = str(
-                            (int(r.pot) * weight) // int(r.total_weight)
-                        )
+                    if scored:
+                        error = _error_bps(int(entry.forecast), int(r.consensus))
+                        weight = _accuracy_weight(error)
+                        row["error_bps"] = str(error)
+                        row["weight"] = str(weight)
+                        if weight > 0 and int(r.total_weight) > 0:
+                            row["share_wei"] = str(
+                                (int(r.pot) * weight) // int(r.total_weight)
+                            )
                 rows.append(row)
             if scored:
-                rows.sort(key=lambda row: int(row["error_bps"]))
+                # Unrevealed rows have no error to sort on, so they sort last
+                # rather than being compared against a number they do not have.
+                rows.sort(
+                    key=lambda row: (
+                        0 if row["error_bps"] != "" else 1,
+                        int(row["error_bps"]) if row["error_bps"] != "" else 0,
+                    )
+                )
         return {
             "round_id": str(int(r.round_id)),
             "status": r.status,
@@ -1039,6 +1250,7 @@ class BreekForecast(gl.Contract):
             "total_weight": str(int(r.total_weight)),
             "scored_at": str(int(r.scored_at)),
             "phase": self._phase(r, now),
+            "revealed": str(int(r.revealed)),
             "entry_fee_wei": str(ENTRY_FEE),
             "seconds_to_lock": str(max(0, int(r.locks_at) - now)),
             "seconds_to_score": str(max(0, int(r.scoreable_at) - now)),

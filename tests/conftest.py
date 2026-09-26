@@ -8,6 +8,7 @@ a test can only pass if the shipped code is correct.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -204,6 +205,69 @@ def mock_feeds(
             "body": cg_body(window_start, window_end, b_close, **(cg_kwargs or {})),
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Commit-reveal helpers
+# ---------------------------------------------------------------------------
+# The digest below is written out independently rather than imported from the
+# contract. If it were imported, a bug in the contract's own hashing would be
+# invisible -- both sides would be wrong in the same way and every test would
+# still pass. This is the scheme as a third-party client must implement it,
+# from the documented preimage, so the contract has to agree with something
+# outside itself.
+
+PRICE_SCALE = 10**8
+COMMIT_VERSION = "c1"
+
+#: Any hex string long enough to satisfy the contract's minimum.
+SALT_A = "a1b2c3d4e5f60718"
+SALT_B = "00ff00ff00ff00ff"
+SALT_C = "dead0000beef1111"
+SALT_D = "9876543210abcdef"
+
+
+def scale_price(text: str) -> int:
+    """Decimal string -> PRICE_SCALE integer, without touching a float."""
+    neg = text.startswith("-")
+    if neg:
+        text = text[1:]
+    if "." in text:
+        whole, frac = text.split(".", 1)
+    else:
+        whole, frac = text, ""
+    frac = (frac + "0" * 8)[:8]
+    value = int(whole or "0") * PRICE_SCALE + int(frac or "0")
+    return -value if neg else value
+
+
+def commitment(round_id: int, who, forecast: str, salt: str) -> str:
+    """Reproduce the contract's commitment from the published preimage."""
+    addr = who if isinstance(who, str) else hexaddr(who)
+    preimage = "%s|%d|%s|%d|%s" % (
+        COMMIT_VERSION,
+        round_id,
+        addr.lower(),
+        scale_price(forecast),
+        salt,
+    )
+    return hashlib.sha256(preimage.encode("utf-8")).hexdigest()
+
+
+def commit(contract, vm, who, round_id: int, forecast: str, salt: str, *, value=ENTRY_FEE):
+    """Enter a round with a sealed forecast, as ``who``."""
+    vm.sender = who
+    vm.origin = who
+    vm.value = value
+    return contract.commit_forecast(round_id, commitment(round_id, who, forecast, salt))
+
+
+def reveal(contract, vm, who, round_id: int, forecast: str, salt: str):
+    """Open a commitment, as ``who``."""
+    vm.sender = who
+    vm.origin = who
+    vm.value = 0
+    return contract.reveal_forecast(round_id, forecast, salt)
 
 
 # ---------------------------------------------------------------------------

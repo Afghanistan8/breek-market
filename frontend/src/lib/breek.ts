@@ -19,14 +19,15 @@ export const GEN = 1_000_000_000_000_000_000n;
 // decimal string so nothing is lost to JavaScript numbers.
 // ---------------------------------------------------------------------------
 
-export type Phase = "ACCEPTING" | "LOCKED" | "AWAITING_SCORE" | "SCORED" | "VOID";
+export type Phase = "ACCEPTING" | "REVEALING" | "AWAITING_SCORE" | "SCORED" | "VOID";
 
 export type RoundStatus =
   | ""
   | "SCORED"
   | "VOID_SPREAD"
   | "VOID_EXPIRED"
-  | "VOID_NO_SCORES";
+  | "VOID_NO_SCORES"
+  | "VOID_NO_REVEALS";
 
 export interface Round {
   round_id: string;
@@ -48,6 +49,8 @@ export interface Round {
   total_weight: string;
   scored_at: string;
   phase: Phase;
+  /** How many entrants opened their commitment inside the reveal window. */
+  revealed: string;
   entry_fee_wei: string;
   seconds_to_lock: string;
   seconds_to_score: string;
@@ -57,6 +60,10 @@ export interface Entry {
   round_id: string;
   who: string;
   entered: boolean;
+  /** The sha256 digest on chain. Public, and says nothing about the price. */
+  commitment: string;
+  revealed: boolean;
+  /** Empty until this entry has been revealed -- for everyone, including you. */
   forecast: string;
   revisions: string;
   collected: boolean;
@@ -70,6 +77,7 @@ export interface LeaderboardRow {
   who: string;
   revisions: string;
   collected: boolean;
+  revealed: boolean;
   forecast: string;
   error_bps: string;
   weight: string;
@@ -111,6 +119,11 @@ export interface Catalog {
   entry_fee_wei: string;
   gen_wei: string;
   max_forecast: string;
+  commit_version: string;
+  commit_preimage: string;
+  commit_hash: string;
+  salt_min_len: string;
+  salt_max_len: string;
   tolerance_bps: string;
   score_cutoff_bps: string;
   max_entries: string;
@@ -364,18 +377,40 @@ export const openRound = (
   windowId: string,
 ) => send(client, "open_round", [category, asset, timeframe, windowId], 0n);
 
-export const submitForecast = (
+/**
+ * Enter a round with a sealed forecast.
+ *
+ * The argument is a sha256 digest, never a price. Calldata is public the
+ * instant it is broadcast, so sending the number here would publish it to
+ * everyone still able to enter -- which is exactly what the commitment exists
+ * to prevent. Build the digest with `lib/commit.ts`.
+ */
+export const commitForecast = (
   client: ReturnType<typeof createClient>,
   roundId: number,
-  forecast: string,
+  commitment: string,
   feeWei: bigint,
-) => send(client, "submit_forecast", [roundId, forecast], feeWei);
+) => send(client, "commit_forecast", [roundId, commitment], feeWei);
 
-export const reviseForecast = (
+/** Replace a sealed forecast. Free, and only while entries are open. */
+export const reviseCommitment = (
+  client: ReturnType<typeof createClient>,
+  roundId: number,
+  commitment: string,
+) => send(client, "revise_commitment", [roundId, commitment], 0n);
+
+/**
+ * Open a commitment, once entries have closed.
+ *
+ * This is the first and only time the price goes on chain. The contract
+ * rebuilds the digest from it and refuses anything that does not match.
+ */
+export const revealForecast = (
   client: ReturnType<typeof createClient>,
   roundId: number,
   forecast: string,
-) => send(client, "revise_forecast", [roundId, forecast], 0n);
+  salt: string,
+) => send(client, "reveal_forecast", [roundId, forecast, salt], 0n);
 
 export const scoreRound = (client: ReturnType<typeof createClient>, roundId: number) =>
   send(client, "score_round", [roundId], 0n);

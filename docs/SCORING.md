@@ -162,15 +162,23 @@ With the settled price known, the contract walks the roster once — bounded by
 ```
 error_i  = |forecast_i − settled| ÷ settled      in basis points
 weight_i = 1000 − error_i, or 0 once error_i ≥ 1000
-Σweights = sum over all entrants
+Σweights = sum over all entrants who revealed
 ```
 
+Only entrants who opened their commitment inside the reveal window are in that
+sum. An unrevealed entry has no number, so it has no accuracy; it contributes
+nothing to the numerator and nothing to the denominator, which means it cannot
+dilute the people who did reveal. Its fee stays in the pot and is therefore
+divided among them.
+
 Only the total is stored. Each entrant's own weight is recomputed at collection
-time from their stored forecast, so collecting stays O(1) no matter how large
+time from their revealed forecast, so collecting stays O(1) no matter how large
 the field.
 
 If entrants existed but **every** weight is zero, nobody's accuracy earned the
-pot: the round becomes `VOID_NO_SCORES` and all fees are refundable. An *empty*
+pot: the round becomes `VOID_NO_SCORES` and all fees are refundable. A round
+where nobody opened their commitment is a different case and is caught earlier,
+as `VOID_NO_REVEALS`, without any feed being fetched. An *empty*
 round is not that case — it prices normally, there is simply nobody to pay.
 
 ---

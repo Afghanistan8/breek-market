@@ -21,6 +21,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import hashlib
 import sys
 import time
 import urllib.error
@@ -128,6 +129,19 @@ def step(text: str) -> None:
     print("  -> %s" % text)
 
 
+def addr_hex(addr) -> str:
+    raw = addr.as_bytes if hasattr(addr, "as_bytes") else bytes(addr)
+    return "0x" + raw.hex()
+
+
+def commit_hash(round_id: int, who, forecast: str, salt: str) -> str:
+    """The commitment, as any client must compute it. See docs/SPEC.md."""
+    scaled_whole, _, scaled_frac = forecast.partition(".")
+    scaled = int(scaled_whole or "0") * 10**8 + int((scaled_frac + "0" * 8)[:8] or "0")
+    pre = "c1|%d|%s|%d|%s" % (round_id, addr_hex(who), scaled, salt)
+    return hashlib.sha256(pre.encode("utf-8")).hexdigest()
+
+
 def nick(addr) -> str:
     raw = addr.as_bytes if hasattr(addr, "as_bytes") else bytes(addr)
     return "0x" + raw.hex()[:6]
@@ -214,37 +228,65 @@ def run(day: str, week: str) -> int:
             #    sharpens after the fact -- see the revise step.
             base = {"SOL": 115.0, "ETH": 2700.0, "NEAR": 4.3}[asset]
             guesses = [base * k for k in (1.001, 1.02, 1.06, 2.5)]
-            for (name, who), guess in zip(players, guesses):
+            sealed = {}
+            for i, ((name, who), guess) in enumerate(zip(players, guesses)):
+                number = "%.4f" % guess
+                salt = "%016x" % (0xDE0BEEF0000 + i)
                 vm.sender = who
+                vm.origin = who
                 vm.value = fee
-                result = contract.submit_forecast(rid, "%.4f" % guess)
+                result = contract.commit_forecast(rid, commit_hash(rid, who, number, salt))
                 vm.value = 0
-                step("%s (%s) entered at %.4f -> %s" % (name, nick(who), guess, result))
+                sealed[name] = (who, number, salt)
+                step("%s (%s) sealed a number -> %s" % (name, nick(who), result[:22] + "..."))
+
+            step("nothing is readable yet: %s" % (
+                "all forecasts empty"
+                if all(
+                    contract.get_entry(rid, addr_hex(who))["forecast"] == ""
+                    for _n, (who, _f, _s) in sealed.items()
+                )
+                else "!! A FORECAST LEAKED"
+            ))
 
             # a couple of rules, demonstrated rather than asserted
             vm.sender = players[0][1]
+            vm.origin = players[0][1]
             vm.value = fee
-            step("entering twice        -> %s" % contract.submit_forecast(rid, "1.0"))
+            step("entering twice        -> %s" % contract.commit_forecast(rid, "a" * 64))
             vm.value = fee * 3
-            step("paying the wrong fee  -> %s" % contract.submit_forecast(rid, "1.0"))
+            step("paying the wrong fee  -> %s" % contract.commit_forecast(rid, "b" * 64))
             vm.value = 0
 
-            # 3. revising is free and unlimited before the lock
-            vm.sender = players[0][1]
-            step("sharp revises         -> %s" % contract.revise_forecast(rid, "%.4f" % (base * 1.0005)))
+            # 3. resealing is free and unlimited before the lock
+            who0, _old, salt0 = sealed[players[0][0]]
+            sharper = "%.4f" % (base * 1.0005)
+            vm.sender = who0
+            vm.origin = who0
+            step("sharp reseals         -> %s" % (
+                contract.revise_commitment(rid, commit_hash(rid, who0, sharper, salt0))[:22] + "..."
+            ))
+            sealed[players[0][0]] = (who0, sharper, salt0)
             r = contract.get_round(rid)
             step("field: %s entries, %s GEN pot" % (r["entrants"], int(r["pot_wei"]) // GEN))
 
-            # 4. window opens -- forecasts lock
+            # 4. window opens -- entries close and reveals begin
             warp(vm, start + HOUR)
             vm.sender = players[0][1]
-            step("phase=%s, revising now -> refused" % contract.get_phase(rid))
+            vm.origin = players[0][1]
+            step("phase=%s, resealing now -> refused" % contract.get_phase(rid))
             try:
-                contract.revise_forecast(rid, "1.0")
+                contract.revise_commitment(rid, "c" * 64)
                 print("  !! revision after lock succeeded")
                 failures += 1
             except Exception as exc:  # noqa: BLE001
                 step("  %s" % exc)
+
+            # 4b. everyone opens their commitment
+            for name, (who, number, salt) in sealed.items():
+                vm.sender = who
+                vm.origin = who
+                step("%s reveals -> %s" % (name, contract.reveal_forecast(rid, number, salt)))
 
             # 5. window closes -- anyone may price it
             warp(vm, end + HOUR)
@@ -318,7 +360,7 @@ def run(day: str, week: str) -> int:
         r = contract.get_round(rid)
         vm.sender = players[1][1]
         vm.value = fee
-        contract.submit_forecast(rid, "2700.0")
+        contract.commit_forecast(rid, commit_hash(rid, vm.sender, "2700.0", "0" * 16))
         vm.value = 0
         step("round %d opened for %s, one entry" % (rid, nxt))
         live.reset()

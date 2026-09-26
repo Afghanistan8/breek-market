@@ -83,12 +83,13 @@ const TxLink = ({ hash }: { hash: string }) => (
   </div>
 );
 
-/** Every reason submit_forecast can refund. Keep in lockstep with the contract. */
+/** Every reason commit_forecast can refund. Keep in lockstep with the contract. */
 const REFUND_REASON: Record<string, string> = {
   NO_SUCH_ROUND: "That round does not exist.",
-  ROUND_LOCKED: "The window has already opened, so forecasts are locked.",
+  ROUND_LOCKED: "Entries have closed for this round.",
   WRONG_FEE: "The entry fee is a fixed amount and this was not it.",
   ALREADY_ENTERED: "You are already in this round. Revising is free — use Revise instead.",
   ROUND_FULL: "This round has reached its entrant cap.",
-  BAD_FORECAST: "That forecast is not a usable price.",
+  BAD_COMMITMENT:
+    "The sealed value was not a valid hash. Nothing was charged — please try again.",
 };

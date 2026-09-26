@@ -3,9 +3,14 @@
 Breek -- drive a deployed contract from the command line.
 
 The ``genlayer`` CLI (0.39.2) cannot attach native GEN to a call, so
-``submit_forecast`` is unreachable from it. This script does that through
+``commit_forecast`` is unreachable from it. This script does that through
 ``genlayer-py``. It never prices a round by supplying a number --
 ``score_round`` takes a round id and the contract fetches its own feeds.
+
+Entering is a two-step commit-reveal. ``enter`` seals a forecast and prints the
+salt; ``reveal`` opens it once entries have closed. The salt is written to
+``.breek-reveal.json`` beside the repo as well as printed, because a lost salt
+means a commitment that can never be opened and a fee that is forfeited.
 
 The signing key comes from the ``BREEK_PRIVATE_KEY`` environment variable. It is
 never written to disk, echoed, or sent anywhere except to sign a transaction for
@@ -18,6 +23,7 @@ Usage::
     python scripts/net_exercise.py --address 0x2b5c... open CRYPTO SOL DAILY 2026-09-29
     python scripts/net_exercise.py --address 0x2b5c... enter 1 118.40
     python scripts/net_exercise.py --address 0x2b5c... revise 1 117.95
+    python scripts/net_exercise.py --address 0x2b5c... reveal 1
     python scripts/net_exercise.py --address 0x2b5c... score 1
     python scripts/net_exercise.py --address 0x2b5c... board 1
     python scripts/net_exercise.py --address 0x2b5c... collect 1
@@ -26,11 +32,56 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import secrets
 import sys
 
 GEN = 10**18
+PRICE_SCALE = 10**8
+REVEAL_STORE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".breek-reveal.json")
+
+
+def scaled_of(text: str) -> int:
+    """Decimal string to a PRICE_SCALE integer, matching the contract exactly."""
+    t = text.strip().lstrip("+")
+    whole, _, frac = t.partition(".")
+    if whole == "":
+        whole = "0"
+    if not whole.isdigit() or (frac != "" and not frac.isdigit()):
+        raise SystemExit("not a plain decimal price: %r" % text)
+    frac = (frac + "0" * 8)[:8]
+    return int(whole) * PRICE_SCALE + int(frac)
+
+
+def commit_hash(round_id: int, who: str, forecast: str, salt: str) -> str:
+    """The commitment. Preimage is published by ``get_catalog``."""
+    pre = "c1|%d|%s|%d|%s" % (round_id, who.lower(), scaled_of(forecast), salt)
+    return hashlib.sha256(pre.encode("utf-8")).hexdigest()
+
+
+def remember(round_id: int, who: str, forecast: str, salt: str) -> None:
+    store = {}
+    if os.path.exists(REVEAL_STORE):
+        try:
+            with open(REVEAL_STORE, encoding="utf-8") as fh:
+                store = json.load(fh)
+        except Exception:  # noqa: BLE001
+            store = {}
+    store["%d:%s" % (round_id, who.lower())] = {"forecast": forecast, "salt": salt}
+    with open(REVEAL_STORE, "w", encoding="utf-8") as fh:
+        json.dump(store, fh, indent=2)
+
+
+def recall(round_id: int, who: str):
+    if not os.path.exists(REVEAL_STORE):
+        return None
+    try:
+        with open(REVEAL_STORE, encoding="utf-8") as fh:
+            return json.load(fh).get("%d:%s" % (round_id, who.lower()))
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def build_client():
@@ -94,13 +145,20 @@ def main() -> int:
     p.add_argument("timeframe")
     p.add_argument("window_id")
 
-    p = sub.add_parser("enter")
+    p = sub.add_parser("enter", help="seal a forecast and pay the entry fee")
     p.add_argument("round_id", type=int)
     p.add_argument("forecast", help="price as a decimal string, e.g. 118.40")
+    p.add_argument("--salt", help="hex salt; generated if omitted")
 
-    p = sub.add_parser("revise")
+    p = sub.add_parser("revise", help="reseal with a different number, free")
     p.add_argument("round_id", type=int)
     p.add_argument("forecast")
+    p.add_argument("--salt")
+
+    p = sub.add_parser("reveal", help="open a commitment after entries close")
+    p.add_argument("round_id", type=int)
+    p.add_argument("forecast", nargs="?", help="omit to use the saved reveal key")
+    p.add_argument("--salt")
 
     p = sub.add_parser("entry")
     p.add_argument("round_id", type=int)
@@ -151,21 +209,58 @@ def main() -> int:
         return 0
 
     if args.cmd == "enter":
-        fee = int(client.read_contract(
-            address=addr, function_name="get_catalog", args=[])["entry_fee_wei"])
-        print("submit_forecast(%d, %s) with %d wei" % (args.round_id, args.forecast, fee))
+        catalog = client.read_contract(address=addr, function_name="get_catalog", args=[])
+        fee = int(catalog["entry_fee_wei"])
+        if catalog.get("commit_version") not in (None, "c1"):
+            print("contract speaks commitment scheme %s, this script speaks c1"
+                  % catalog["commit_version"])
+            return 2
+
+        salt = args.salt or secrets.token_hex(16)
+        digest = commit_hash(args.round_id, account.address, args.forecast, salt)
+
+        # Written before the transaction is sent, never after. If the send
+        # succeeds and the process then dies, an unrecorded salt means a
+        # commitment nobody can open and a fee forfeited for nothing.
+        remember(args.round_id, account.address, args.forecast, salt)
+        print("sealed %s with salt %s" % (args.forecast, salt))
+        print("saved to %s -- keep it, you cannot reveal without it" % REVEAL_STORE)
+        print("commit_forecast(%d, %s) with %d wei" % (args.round_id, digest, fee))
+
         wait(client, client.write_contract(
-            address=addr, function_name="submit_forecast",
-            args=[args.round_id, args.forecast], value=fee))
+            address=addr, function_name="commit_forecast",
+            args=[args.round_id, digest], value=fee))
         show("entry", client.read_contract(
             address=addr, function_name="get_entry",
             args=[args.round_id, account.address]))
         return 0
 
     if args.cmd == "revise":
+        salt = args.salt or secrets.token_hex(16)
+        digest = commit_hash(args.round_id, account.address, args.forecast, salt)
+        remember(args.round_id, account.address, args.forecast, salt)
+        print("resealed %s with salt %s" % (args.forecast, salt))
         wait(client, client.write_contract(
-            address=addr, function_name="revise_forecast",
-            args=[args.round_id, args.forecast], value=0))
+            address=addr, function_name="revise_commitment",
+            args=[args.round_id, digest], value=0))
+        return 0
+
+    if args.cmd == "reveal":
+        saved = recall(args.round_id, account.address)
+        forecast = args.forecast or (saved or {}).get("forecast")
+        salt = args.salt or (saved or {}).get("salt")
+        if not forecast or not salt:
+            print("no saved reveal key for round %d and %s."
+                  % (args.round_id, account.address))
+            print("pass the forecast and --salt explicitly.")
+            return 2
+        print("reveal_forecast(%d, %s, %s)" % (args.round_id, forecast, salt))
+        wait(client, client.write_contract(
+            address=addr, function_name="reveal_forecast",
+            args=[args.round_id, forecast, salt], value=0))
+        show("entry", client.read_contract(
+            address=addr, function_name="get_entry",
+            args=[args.round_id, account.address]))
         return 0
 
     if args.cmd == "score":

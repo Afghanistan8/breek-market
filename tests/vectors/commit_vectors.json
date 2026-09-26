@@ -1,0 +1,72 @@
+{
+  "_comment": "Known-answer vectors for the Breek commitment scheme. Every client that computes a commitment must reproduce these exactly. A client that does not will produce entries that can never be revealed, which forfeits the fee, so both the Python contract and the TypeScript frontend are tested against this file rather than against each other.",
+  "version": "c1",
+  "price_scale": "100000000",
+  "preimage_format": "c1|<round_id>|<sender_lowercase_hex>|<scaled_forecast>|<salt>",
+  "hash": "sha256, lowercase hex",
+  "vectors": [
+    {
+      "round_id": 3,
+      "address": "0x4184bc5e5444f250767e8d33a49817a9b4fb0df3",
+      "forecast": "5.00",
+      "salt": "a1b2c3d4e5f60718",
+      "scaled": "500000000",
+      "preimage": "c1|3|0x4184bc5e5444f250767e8d33a49817a9b4fb0df3|500000000|a1b2c3d4e5f60718",
+      "commitment": "a799e2607e0616092515af8c64c437ca9cf4ac4e6ff17b77210a5e7529dddeef"
+    },
+    {
+      "round_id": 1,
+      "address": "0x0000000000000000000000000000000000000001",
+      "forecast": "0.1",
+      "salt": "00ff00ff00ff00ff",
+      "scaled": "10000000",
+      "preimage": "c1|1|0x0000000000000000000000000000000000000001|10000000|00ff00ff00ff00ff",
+      "commitment": "e5756ca5077c63f8c83c0f9c450160d3de9af91e79b283ad6c72cf5e2aa97c3c"
+    },
+    {
+      "round_id": 42,
+      "address": "0xabcdef0123456789abcdef0123456789abcdef01",
+      "forecast": "117.99999999999",
+      "salt": "dead0000beef1111",
+      "scaled": "11799999999",
+      "preimage": "c1|42|0xabcdef0123456789abcdef0123456789abcdef01|11799999999|dead0000beef1111",
+      "commitment": "7b35be55c9f64e422fafa2e76e46faa8d42062482546adfb44b7a381bdf92c2d"
+    },
+    {
+      "round_id": 7,
+      "address": "0x1111111111111111111111111111111111111111",
+      "forecast": "80494.31",
+      "salt": "9876543210abcdef",
+      "scaled": "8049431000000",
+      "preimage": "c1|7|0x1111111111111111111111111111111111111111|8049431000000|9876543210abcdef",
+      "commitment": "8824e7d3a65eaf255ed5204cba0fa6bbcd7614d65757610cf6bd43f195dd47fb"
+    },
+    {
+      "round_id": 999,
+      "address": "0x2222222222222222222222222222222222222222",
+      "forecast": "4.9",
+      "salt": "feedfacecafe0001",
+      "scaled": "490000000",
+      "preimage": "c1|999|0x2222222222222222222222222222222222222222|490000000|feedfacecafe0001",
+      "commitment": "a7526c531c16210fd68ad10e6e5f462ba3d65d14fa7a549b0ccdd68c8a90706c"
+    },
+    {
+      "round_id": 12,
+      "address": "0x3333333333333333333333333333333333333333",
+      "forecast": ".5",
+      "salt": "0123456789abcdef",
+      "scaled": "50000000",
+      "preimage": "c1|12|0x3333333333333333333333333333333333333333|50000000|0123456789abcdef",
+      "commitment": "718ecf08d05301176fb2955887366ec6a7ae46bf978d866247022d2b290ad220"
+    },
+    {
+      "round_id": 5,
+      "address": "0x4444444444444444444444444444444444444444",
+      "forecast": "1000000",
+      "salt": "ffffffffffffffff",
+      "scaled": "100000000000000",
+      "preimage": "c1|5|0x4444444444444444444444444444444444444444|100000000000000|ffffffffffffffff",
+      "commitment": "6cbd1ddb6344ab98a133d01780a41f1400d100c1b3a61338e98e4bb14a4600dd"
+    }
+  ]
+}

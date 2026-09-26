@@ -71,7 +71,7 @@ export const RoundRow = ({
             <br />
             {round.phase === "ACCEPTING"
               ? fmtCountdown(locks - now)
-              : round.phase === "LOCKED"
+              : round.phase === "REVEALING"
                 ? fmtCountdown(scoreable - now)
                 : "now"}
           </>
@@ -105,8 +105,8 @@ export const StatusChip = ({ round, compact }: { round: Round; compact?: boolean
   switch (round.phase) {
     case "ACCEPTING":
       return <span className="chip chip-live">open</span>;
-    case "LOCKED":
-      return <span className="chip">locked</span>;
+    case "REVEALING":
+      return <span className="chip chip-warn">reveal now</span>;
     case "AWAITING_SCORE":
       return <span className="chip chip-warn">score me</span>;
     case "SCORED":

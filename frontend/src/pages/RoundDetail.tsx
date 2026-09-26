@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { Leaderboard } from "../components/Leaderboard";
+import { RevealKeyCard } from "../components/RevealKeyCard";
 import { LivePrice } from "../components/LivePrice";
 import { PriceEvidence } from "../components/PriceEvidence";
 import { StatusChip } from "../components/RoundRow";
@@ -10,16 +11,18 @@ import { WriteGate } from "../components/WriteGate";
 import {
   useCatalog,
   useCollect,
+  useCommitForecast,
   useEntry,
   useEvidence,
   useLeaderboard,
   useNow,
-  useReviseForecast,
+  useRevealForecast,
+  useReviseCommitment,
   useRound,
   useScoreRound,
-  useSubmitForecast,
 } from "../hooks";
-import { explorerAddress } from "../lib/env";
+import { loadRevealKey, verifyScheme, type RevealKey } from "../lib/commit";
+import { env, explorerAddress } from "../lib/env";
 import {
   OUTCOME_LABEL,
   bpsAsPct,
@@ -43,17 +46,31 @@ export default function RoundDetail() {
   const board = useLeaderboard(roundId);
   const evidence = useEvidence(roundId, Boolean(round.data?.status));
 
-  const submit = useSubmitForecast();
-  const revise = useReviseForecast();
+  const submit = useCommitForecast();
+  const revise = useReviseCommitment();
+  const revealIt = useRevealForecast();
   const scoreIt = useScoreRound();
   const collectIt = useCollect();
 
   const [draft, setDraft] = useState("");
+  const [openForecast, setOpenForecast] = useState("");
+  const [openSalt, setOpenSalt] = useState("");
+  const [manual, setManual] = useState(false);
 
   const mine = entry.data;
+
+  // The reveal key for this round, if this browser is the one that made the
+  // commitment. Re-read whenever the entry changes so a fresh revision's key
+  // replaces the previous one.
+  const stored: RevealKey | null =
+    address && mine?.entered ? loadRevealKey(env.contract, roundId, address) : null;
+
   useEffect(() => {
-    if (mine?.entered && draft === "") setDraft(trimPrice(mine.forecast));
-  }, [mine, draft]);
+    if (stored && openForecast === "" && openSalt === "") {
+      setOpenForecast(stored.forecast);
+      setOpenSalt(stored.salt);
+    }
+  }, [stored, openForecast, openSalt]);
 
   if (round.isLoading) return <div className="skeleton" style={{ height: 320 }} />;
   if (round.isError || !round.data) {
@@ -73,8 +90,18 @@ export default function RoundDetail() {
   // Live context is worth showing while the outcome is still unknown. Once a
   // round is scored the settled price is the number that matters, and a spot
   // quote next to it would only invite confusion.
-  const showLive = hasFeeds(r.asset) && (accepting || r.phase === "LOCKED");
+  const showLive = hasFeeds(r.asset) && (accepting || r.phase === "REVEALING");
   const toleranceBps = Number(catalog.data?.tolerance_bps ?? 50);
+
+  // Refuse to build a commitment this contract would not recognise. A digest
+  // the contract cannot reproduce takes the fee and leaves an entry nobody can
+  // ever open, so a mismatch has to stop entry rather than warn about it.
+  const schemeProblem = catalog.data ? verifyScheme(catalog.data) : null;
+
+  const revealing = r.phase === "REVEALING";
+  const needsReveal = revealing && Boolean(mine?.entered) && mine?.revealed === false;
+  const revealReady =
+    /^\d+(\.\d+)?$/.test(openForecast.trim()) && /^[0-9a-f]{16,64}$/.test(openSalt.trim());
 
   // Mirror the contract's own acceptance rules so a doomed entry is caught
   // before it costs a signature. The bound comes from the catalog rather than
@@ -141,7 +168,7 @@ export default function RoundDetail() {
           <dt>Scoreable from</dt>
           <dd>
             {fmtGmt1Long(Number(r.scoreable_at))}
-            {r.phase === "LOCKED" && (
+            {r.phase === "REVEALING" && (
               <span className="muted">
                 {" "}
                 · in {fmtCountdown(Number(r.scoreable_at) - now)}
@@ -185,8 +212,9 @@ export default function RoundDetail() {
 
           {mine?.entered ? (
             <p className="dim" style={{ fontSize: 12, marginTop: 0 }}>
-              You are in. Revising costs nothing and you may do it as often as you
-              like until the window opens &mdash; only your last number is graded.
+              You are in, and your number is sealed. Revising costs nothing and
+              you may do it as often as you like until the window opens &mdash;
+              only your last number counts.
               {mine.revisions !== "0" && ` Revised ${mine.revisions} time(s) so far.`}
             </p>
           ) : (
@@ -194,6 +222,22 @@ export default function RoundDetail() {
               One flat fee of {fmtGen(r.entry_fee_wei)} GEN, one entry per wallet.
               Everybody pays the same, so only accuracy separates the payouts.
             </p>
+          )}
+
+          <div className="note" style={{ marginBottom: 12, fontSize: 11.5 }}>
+            Your price is <b>hashed in this browser</b> and only the hash is
+            sent. Nobody &mdash; no other entrant, no observer, not the contract
+            &mdash; can read it until entries close. You then reveal it between{" "}
+            {fmtGmt1Long(Number(r.locks_at))} and{" "}
+            {fmtGmt1Long(Number(r.scoreable_at))}.{" "}
+            <b>An entry that is never revealed forfeits its fee.</b>
+          </div>
+
+          {schemeProblem && (
+            <div className="note note-bad" style={{ marginBottom: 12 }}>
+              {schemeProblem} Entering now could create a commitment you cannot
+              open, so entry is disabled.
+            </div>
           )}
 
           {showLive && (
@@ -228,27 +272,126 @@ export default function RoundDetail() {
             {mine?.entered ? (
               <button
                 className="btn btn-primary"
-                disabled={!valid || revise.isPending}
+                disabled={!valid || revise.isPending || Boolean(schemeProblem)}
                 onClick={() => revise.mutate({ roundId, forecast: draft.trim() })}
               >
-                Revise to {valid ? draft.trim() : "…"}
+                Seal {valid ? draft.trim() : "…"} instead
               </button>
             ) : (
               <button
                 className="btn btn-primary"
-                disabled={!valid || submit.isPending}
+                disabled={!valid || submit.isPending || Boolean(schemeProblem)}
                 onClick={() =>
                   submit.mutate({ roundId, forecast: draft.trim(), feeWei: fee })
                 }
               >
-                Submit for {fmtGen(r.entry_fee_wei)} GEN
+                Seal and enter for {fmtGen(r.entry_fee_wei)} GEN
               </button>
             )}
           </WriteGate>
 
           <TxStatus pending={submit.isPending} error={submit.error} result={submit.data} />
           <TxStatus pending={revise.isPending} error={revise.error} result={revise.data} />
+
+          {stored && (
+            <div style={{ marginTop: 14 }}>
+              <RevealKeyCard rkey={stored} />
+            </div>
+          )}
         </section>
+      )}
+
+      {needsReveal && (
+        <section className="panel panel-pad">
+          <div className="section-rule">
+            <span>Reveal your forecast</span>
+          </div>
+          <p className="dim" style={{ fontSize: 12, marginTop: 0 }}>
+            Entries are closed, so your number can be published without helping
+            anyone. Reveal it before{" "}
+            <b>{fmtGmt1Long(Number(r.scoreable_at))}</b> &mdash;{" "}
+            {fmtCountdown(Number(r.scoreable_at) - now)} from now. The contract
+            rebuilds the hash from what you enter and accepts it only if it
+            matches what you sealed.
+          </p>
+
+          <div className="note note-warn" style={{ marginBottom: 12, fontSize: 11.5 }}>
+            An entry that is not revealed in time scores nothing and its fee
+            stays in the pot for the entrants who did reveal. That is what stops
+            somebody entering from many wallets and opening only the one that
+            aged well.
+          </div>
+
+          {stored && !manual ? (
+            <>
+              <RevealKeyCard rkey={stored} tone="quiet" />
+              <p className="dim" style={{ fontSize: 11.5, margin: "10px 0" }}>
+                Loaded from this browser.{" "}
+                <button className="linkish" onClick={() => setManual(true)}>
+                  Enter it by hand instead
+                </button>
+              </p>
+            </>
+          ) : (
+            <>
+              {!stored && (
+                <div className="note" style={{ marginBottom: 12, fontSize: 11.5 }}>
+                  This browser has no reveal key for this round &mdash; it was
+                  probably sealed somewhere else. Paste the forecast and salt
+                  from the copy you saved.
+                </div>
+              )}
+              <label className="field" style={{ marginBottom: 10 }}>
+                Forecast you sealed
+                <input
+                  className="forecast-input mono"
+                  inputMode="decimal"
+                  placeholder="0.00"
+                  value={openForecast}
+                  onChange={(e) => setOpenForecast(e.target.value)}
+                />
+              </label>
+              <label className="field" style={{ marginBottom: 12 }}>
+                Salt
+                <input
+                  className="forecast-input mono"
+                  style={{ fontSize: 14 }}
+                  placeholder="32 hex characters"
+                  value={openSalt}
+                  onChange={(e) => setOpenSalt(e.target.value.trim().toLowerCase())}
+                />
+              </label>
+            </>
+          )}
+
+          <WriteGate action="reveal">
+            <button
+              className="btn btn-primary"
+              disabled={!revealReady || revealIt.isPending}
+              onClick={() =>
+                revealIt.mutate({
+                  roundId,
+                  forecast: openForecast.trim(),
+                  salt: openSalt.trim(),
+                })
+              }
+            >
+              Reveal {revealReady ? openForecast.trim() : "…"}
+            </button>
+          </WriteGate>
+          <TxStatus
+            pending={revealIt.isPending}
+            error={revealIt.error}
+            result={revealIt.data}
+          />
+        </section>
+      )}
+
+      {revealing && mine?.revealed && (
+        <div className="note note-good">
+          Revealed. Your forecast of <b>{trimPrice(mine.forecast)}</b> is on
+          chain and will be graded when the round is priced.
+        </div>
       )}
 
       {showLive && !accepting && (

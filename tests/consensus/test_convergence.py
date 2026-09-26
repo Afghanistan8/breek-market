@@ -19,6 +19,7 @@ from tests.conftest import (
     GATE_URL_RE,
     HOUR,
     LEADER_ERRORED,
+    commitment,
     day_window,
     leader_payload,
     mock_feeds,
@@ -202,11 +203,19 @@ def test_snapshot_rollback_scores_one_round_several_ways(breek, vm, alice, bob):
     """
     contract, _ = breek
     rid = a_round(breek, vm)
-    for who, forecast in ((alice, "117.95"), (bob, "118.40")):
+    field = ((alice, "117.95", "1111111111111111"), (bob, "118.40", "2222222222222222"))
+    for who, forecast, salt in field:
         vm.sender = who
+        vm.origin = who
         vm.value = ENTRY_FEE
-        contract.submit_forecast(rid, forecast)
+        contract.commit_forecast(rid, commitment(rid, who, forecast, salt))
     vm.value = 0
+
+    warp_to(vm, int(contract.get_round(rid)["locks_at"]) + 3600)
+    for who, forecast, salt in field:
+        vm.sender = who
+        vm.origin = who
+        contract.reveal_forecast(rid, forecast, salt)
     warp_to(vm, AFTER_CLOSE)
 
     base = vm.snapshot()

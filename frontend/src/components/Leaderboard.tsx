@@ -4,9 +4,11 @@ import { bpsAsPct, fmtGen, shortAddress, trimPrice, weightPct } from "../lib/for
 /**
  * Who called it closest.
  *
- * Before a round is priced this shows who entered but not what they said --
- * publishing live forecasts would let a late entrant simply copy the crowd,
- * which would turn a skill contest into a herding exercise.
+ * A number appears here only once its owner has revealed it, which cannot
+ * happen while entries are open. Publishing live forecasts would let a late
+ * entrant copy the crowd, turning a skill contest into a herding exercise.
+ * The concealment is enforced by the contract, not by this component -- the
+ * field simply comes back empty.
  */
 export const Leaderboard = ({
   board,
@@ -22,20 +24,22 @@ export const Leaderboard = ({
   }
 
   const scored = board.status === "SCORED";
+  const opened = board.entries.filter((row) => row.revealed).length;
 
   if (!scored) {
     return (
       <>
         <p className="dim" style={{ fontSize: 12, marginTop: 0 }}>
           {board.entries.length}{" "}
-          {board.entries.length === 1 ? "forecast is" : "forecasts are"} in.
-          Numbers stay sealed until the round is priced, so nobody can copy the
-          crowd.
+          {board.entries.length === 1 ? "forecast is" : "forecasts are"} in,{" "}
+          {opened} revealed so far. A sealed number is a sha256 hash and cannot
+          be read by anyone until its owner opens it.
         </p>
         <table className="grid">
           <thead>
             <tr>
               <th>Entrant</th>
+              <th>Forecast</th>
               <th style={{ textAlign: "right" }}>Revisions</th>
             </tr>
           </thead>
@@ -45,6 +49,15 @@ export const Leaderboard = ({
                 <td>
                   {shortAddress(row.who)}
                   {row.who === me && <span className="chip" style={{ marginLeft: 8 }}>you</span>}
+                </td>
+                <td>
+                  {row.revealed ? (
+                    trimPrice(row.forecast)
+                  ) : (
+                    <span className="dim" title="sha256, salted -- not derivable">
+                      sealed
+                    </span>
+                  )}
                 </td>
                 <td style={{ textAlign: "right" }}>{row.revisions}</td>
               </tr>
@@ -69,8 +82,8 @@ export const Leaderboard = ({
       </thead>
       <tbody>
         {board.entries.map((row, i) => {
-          const pct = weightPct(row.weight, cutoffBps);
-          const zero = Number(row.weight) === 0;
+          const pct = row.revealed ? weightPct(row.weight, cutoffBps) : 0;
+          const zero = !row.revealed || Number(row.weight) === 0;
           return (
             <tr key={row.who} className={row.who === me ? "is-me" : undefined}>
               <td className="dim">{i + 1}</td>
@@ -78,9 +91,15 @@ export const Leaderboard = ({
                 {shortAddress(row.who)}
                 {row.who === me && <span className="chip" style={{ marginLeft: 8 }}>you</span>}
               </td>
-              <td>{trimPrice(row.forecast)}</td>
+              <td>
+                {row.revealed ? (
+                  trimPrice(row.forecast)
+                ) : (
+                  <span className="dim">never revealed</span>
+                )}
+              </td>
               <td style={{ color: zero ? "var(--drift)" : undefined }}>
-                {bpsAsPct(row.error_bps)}
+                {row.revealed ? bpsAsPct(row.error_bps) : <span className="dim">—</span>}
               </td>
               <td>
                 <div className="acc" title={`weight ${row.weight}`}>

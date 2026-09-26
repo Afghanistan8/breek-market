@@ -3,7 +3,7 @@
 What is actually deployed, what has actually been executed on it, and what has
 not. Anything unverified is marked as such rather than implied.
 
-Last updated: 2026-09-26.
+Last updated: 2026-09-26 (commit-reveal redeployment).
 
 ---
 
@@ -14,7 +14,7 @@ Last updated: 2026-09-26.
 | Network | **studionet** (GenLayer Studio Network) |
 | Chain id | `61999` |
 | RPC | `https://studio.genlayer.com/api` |
-| Contract | [`0x4aDb6a8f9D0B920cC5699F75060324575C01E19a`](https://explorer-studio.genlayer.com/address/0x4aDb6a8f9D0B920cC5699F75060324575C01E19a) |
+| Contract | [`0xFB18E78053c22d9e1C7681174f4cCA2a96E0AD18`](https://explorer-studio.genlayer.com/address/0xFB18E78053c22d9e1C7681174f4cCA2a96E0AD18) |
 | Runner | `py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6` |
 | Frontend | https://breek-market-puce.vercel.app/ |
 | `genlayer-js` | **1.1.8** (pinned exactly, no caret) |
@@ -27,12 +27,14 @@ Superseded deployments, kept here so an old link is traceable:
 |---|---|
 | `0xC69eDF8Cd4d723002d1d658CAB3AD616A34532d7` | `BreekMarket` — the prediction-market mechanics, replaced wholesale |
 | `0x2b5cF7247380d9B487758f27A2A5e1FFA7d821f7` | `BreekForecast` — carried the stranded-fee bug in SPEC section 14 |
+| `0x4aDb6a8f9D0B920cC5699F75060324575C01E19a` | `BreekForecast` — stored forecasts in plaintext and disclosed them through `get_entry` and `list_entries` before entries closed. SPEC section 16. There is no upgrade hook, by design, so the fix is a new address. |
 
 ---
 
 ## Write status
 
-**Browser writes: executed on chain.** A payable `submit_forecast` from the
+**Browser writes: executed on chain**, on the superseded contract. A payable
+`submit_forecast` (the method commit-reveal replaced with `commit_forecast`) from the
 deployer wallet is finalized at
 [`0x7a920956…cfcfd96f`](https://explorer-studio.genlayer.com/tx/0x7a920956422a32e678a4e57cdcd6a53f0eefcd93a2f62d509796055ecfcfd96f),
 GenVM result SUCCESS, consensus Accepted, and the contract balance moved to
@@ -79,27 +81,61 @@ studionet today.
 
 ## Executed on chain
 
+### Current deployment
+
+```
+deploy tx 0x9566c9dd961170ea72d362c3f852bba01debf6cf577f087ce99f32438d81b2c2
+          validator votes AGREE x5, ACCEPTED
+contract  0xFB18E78053c22d9e1C7681174f4cCA2a96E0AD18
+```
+
+Commitment scheme, read back from the live contract through `get_catalog`:
+
+```
+commit_version   c1
+commit_preimage  c1|<round_id>|<sender_lowercase_hex>|<scaled>|<salt>
+commit_hash      sha256-hex
+price_scale      100000000
+salt_min_len     16
+salt_max_len     64
+```
+
+`reveal_forecast` was called against the live contract on an open round and
+correctly refused:
+
+```
+reveal_forecast(1, "120.00", "a1b2c3d4e5f60718")  ->  EXPECTED:REVEAL_NOT_OPEN
+```
+
+That confirms on chain what the tests assert in process: the reveal window does
+not open while entries are still being taken.
+
 ### Rounds opened
 
 Both through the permissionless `open_round`. No admin involved.
 
-| id | asset | timeframe | GMT+1 window | phase |
-|---|---|---|---|---|
-| 1 | SOL | DAILY | 2026-09-27 | ACCEPTING |
-| 2 | ETH | WEEKLY | week of 2026-09-28 | ACCEPTING |
-| 3 | NEAR | DAILY | 2026-09-27 | ACCEPTING — **1 forecast, 1 GEN pot** |
-| 4 | SOL | WEEKLY | week of 2026-09-28 | ACCEPTING |
+Four rounds are open on the current contract, all through the permissionless
+`open_round` and all read back from chain:
+
+| id | asset | timeframe | GMT+1 window | phase | entrants | revealed |
+|---|---|---|---|---|---|---|
+| 1 | SOL | DAILY | 2026-09-28 | ACCEPTING | 0 | 0 |
+| 2 | ETH | WEEKLY | week of 2026-09-28 | ACCEPTING | 0 | 0 |
+| 3 | NEAR | DAILY | 2026-09-28 | ACCEPTING | 0 | 0 |
+| 4 | SOL | WEEKLY | week of 2026-09-28 | ACCEPTING | 0 | 0 |
 
 ### Forecasts submitted
 
-| round | asset | entrant | revisions | forecast |
-|---|---|---|---|---|
-| 3 | NEAR | `0x4184bc…FB0df3` | 0 | **sealed until the round is priced** |
+**None yet on the current contract.** The one entry made on the superseded
+contract — round 3, NEAR, `0x4184bc…FB0df3`, tx `0x7a920956…cfcfd96f` — was
+made under the plaintext design. Its forecast (`5.00000000`) is public and
+always was; that is the defect. It is not carried forward, because state does
+not migrate and because it was never concealed in the first place.
 
-The number is not recorded here because it is not readable: `get_leaderboard`
-withholds forecasts while a round is accepting, so nobody — including whoever
-writes this file — can copy the field. It becomes visible when `score_round(3)`
-runs, which is possible from **28 Sep 2026, 00:00 GMT+1**.
+Entering the current contract requires the payable `commit_forecast`, which the
+CLI cannot reach: `genlayer write` has no flag for attaching native GEN, only
+`--fee-value` for the fee deposit. Entry is therefore through the frontend or
+`scripts/net_exercise.py`.
 
 ### Contract deployment
 
@@ -110,8 +146,10 @@ deploy tx 0x2f84b32f91aef3c05318b72fd367f61e24af65a2a4a9bf12259944af7f325714
 
 ### Transaction hashes, as the Studio explorer shows them
 
-All six FINALIZED with GenVM result SUCCESS and consensus Accepted. This is the
-contract's complete transaction history as the explorer lists it:
+These six ran against the **superseded** contract
+`0x4aDb6a8f9D0B920cC5699F75060324575C01E19a` and are kept because they are
+still the evidence for the write paths listed below. All FINALIZED with GenVM
+result SUCCESS and consensus Accepted:
 
 | Tx | Method |
 |---|---|
@@ -120,7 +158,7 @@ contract's complete transaction history as the explorer lists it:
 | [`0xdc810014…3ad4a8d4`](https://explorer-studio.genlayer.com/tx/0xdc8100142806a843762a2119b9b2f507c2444e33203b32bb929670813ad4a8d4) | `open_round` (round 2, ETH) |
 | [`0x22b78cd3…0dd1be74`](https://explorer-studio.genlayer.com/tx/0x22b78cd360fd97ccd747ff90b0172942adf58814fadfd66b727b16f20dd1be74) | `open_round` (round 3, NEAR) |
 | [`0xc466681b…c933bfc8`](https://explorer-studio.genlayer.com/tx/0xc466681b48eea5343abbbbeddf4a1e16505dbf57e0e1721f34411b9dc933bfc8) | `open_round` (round 4, SOL weekly) |
-| [`0x7a920956…cfcfd96f`](https://explorer-studio.genlayer.com/tx/0x7a920956422a32e678a4e57cdcd6a53f0eefcd93a2f62d509796055ecfcfd96f) | **`submit_forecast` (round 3, payable, 1 GEN)** |
+| [`0x7a920956…cfcfd96f`](https://explorer-studio.genlayer.com/tx/0x7a920956422a32e678a4e57cdcd6a53f0eefcd93a2f62d509796055ecfcfd96f) | **`submit_forecast` (round 3, payable, 1 GEN) — the plaintext method, now replaced** |
 
 Note the explorer host: `explorer-studio.genlayer.com`. The
 `genlayer-explorer.vercel.app` host used earlier in this repo returns **503**
@@ -153,7 +191,8 @@ correctly omits the optional price fields.
 
 | Check | Status |
 |---|---|
-| `python -m pytest tests` | 124 passed |
+| `python -m pytest tests` | 159 passed |
+| `node scripts/check_commit_vectors.mjs` | all vectors match; mutation-checked |
 | `genvm-lint lint contracts/BreekForecast.py` | passed |
 | `npx tsc --noEmit` (frontend) | clean |
 | `npm run build` (frontend) | clean |
@@ -164,22 +203,27 @@ correctly omits the optional price fields.
 | Wallet discovery + connect | verified against simulated EIP-6963 wallets |
 | Every view's keys vs its TS interface | verified field by field against the live contract |
 | Non-payable write path on chain | verified (`score_round` -> `EXPECTED:WINDOW_NOT_CLOSED`) |
-| Hostile inputs (oversized, malformed, wrong fee, cap) | 15 tests, all refund rather than revert |
-| Payable write path on chain | verified &mdash; `submit_forecast` FINALIZED, contract balance 1 GEN |
+| Hostile inputs (oversized, malformed, wrong fee, cap) | covered; the payable call now takes only a digest |
+| Cross-user concealment | 15 tests from the attacker's side; mutation-checked three ways |
+| Reveal window guard on chain | verified &mdash; `EXPECTED:REVEAL_NOT_OPEN` on an open round |
+| Payable write path on chain | verified on the superseded contract &mdash; FINALIZED, balance 1 GEN. The mechanism is unchanged; only the argument is now a digest. |
 | Wallet-signed write of any kind | verified by elimination (CLI cannot attach value; no key exported) |
 | Which wallet rendered the prompt | **not recorded** &mdash; not observed from this side |
-| On-chain scoring | **not executed** &mdash; no window has closed yet; round 3 is first, from 28 Sep 2026 00:00 GMT+1 |
+| On-chain scoring | **not executed** &mdash; no window has closed yet |
+| On-chain `commit_forecast` | **not executed on the current contract** &mdash; needs a wallet; the CLI cannot attach value |
+| On-chain `reveal_forecast` success path | **not executed** &mdash; needs a commitment first |
 | On-chain `collect` | **not executed** &mdash; nothing has been scored |
 
 ---
 
 ## Known limitations
 
-* `genlayer` CLI 0.39.2 cannot reach `submit_forecast` or `revise_forecast`: it
-  has no flag for attaching value, and its argument parser crashes on a decimal
-  price (`BigInt("120.50")` throws). `open_round` works from it; everything
-  else needs the frontend or `scripts/net_exercise.py`. The round 3 entry
-  recorded above went through the wallet path for exactly this reason.
+* `genlayer` CLI 0.39.2 cannot reach `commit_forecast` (no flag for attaching
+  native GEN &mdash; `genlayer write --help` offers only `--fee-value`) or
+  `reveal_forecast` (its argument parser crashes on a decimal price, because
+  `BigInt("120.50")` throws). `open_round`, `score_round` and `collect` all
+  work from it, and `open_round` was used to open the four live rounds.
+  Entering and revealing need the frontend or `scripts/net_exercise.py`.
 * `genvm-lint validate` cannot load the SDK on the current release: it looks
   under `runners/…` while the artifacts moved to
   `executor/v0.2.17/legacy-runners/…`. `genvm-lint lint` passes.

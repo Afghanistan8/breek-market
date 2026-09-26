@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 
 import {
   collect,
+  commitForecast,
   getCatalog,
   getEntry,
   getEvidence,
@@ -15,12 +16,13 @@ import {
   listRounds,
   listScoreable,
   openRound,
-  reviseForecast,
+  revealForecast,
+  reviseCommitment,
   scoreRound,
-  submitForecast,
   type WriteResult,
 } from "./lib/breek";
-import { contractConfigured } from "./lib/env";
+import { computeCommitment, newSalt, saveRevealKey } from "./lib/commit";
+import { contractConfigured, env } from "./lib/env";
 import { fetchCatalogPrices, fetchFeedPair } from "./lib/prices";
 import { useWallet } from "./lib/wallet";
 
@@ -161,26 +163,82 @@ export const useOpenRound = () => {
   });
 };
 
-export const useSubmitForecast = () => {
+/**
+ * Seal a forecast and enter.
+ *
+ * The salt is generated here and saved before the transaction is sent, not
+ * after. If the tab closes mid-signature the entry may still land, and an
+ * entry whose salt was never written down cannot be revealed -- which forfeits
+ * the fee. Writing first makes the worst case a stored key for a transaction
+ * that never happened, which costs nothing.
+ */
+export const useCommitForecast = () => {
+  const requireClient = useRequireClient();
+  const { address } = useWallet();
+  const qc = useQueryClient();
+  return useMutation<
+    WriteResult & { salt: string },
+    Error,
+    { roundId: number; forecast: string; feeWei: bigint }
+  >({
+    mutationFn: async ({ roundId, forecast, feeWei }) => {
+      if (!address) throw new Error("Connect a wallet first.");
+      const salt = newSalt();
+      const digest = await computeCommitment(roundId, address, forecast, salt);
+      saveRevealKey({
+        contract: env.contract,
+        roundId,
+        address,
+        forecast,
+        salt,
+        committedAt: Date.now(),
+      });
+      const res = await commitForecast(requireClient(), roundId, digest, feeWei);
+      return { ...res, salt };
+    },
+    onSuccess: () => invalidateAll(qc),
+  });
+};
+
+export const useReviseCommitment = () => {
+  const requireClient = useRequireClient();
+  const { address } = useWallet();
+  const qc = useQueryClient();
+  return useMutation<
+    WriteResult & { salt: string },
+    Error,
+    { roundId: number; forecast: string }
+  >({
+    mutationFn: async ({ roundId, forecast }) => {
+      if (!address) throw new Error("Connect a wallet first.");
+      const salt = newSalt();
+      const digest = await computeCommitment(roundId, address, forecast, salt);
+      saveRevealKey({
+        contract: env.contract,
+        roundId,
+        address,
+        forecast,
+        salt,
+        committedAt: Date.now(),
+      });
+      const res = await reviseCommitment(requireClient(), roundId, digest);
+      return { ...res, salt };
+    },
+    onSuccess: () => invalidateAll(qc),
+  });
+};
+
+/** Open a commitment. The price reaches the chain here and nowhere earlier. */
+export const useRevealForecast = () => {
   const requireClient = useRequireClient();
   const qc = useQueryClient();
   return useMutation<WriteResult, Error, {
     roundId: number;
     forecast: string;
-    feeWei: bigint;
+    salt: string;
   }>({
-    mutationFn: ({ roundId, forecast, feeWei }) =>
-      submitForecast(requireClient(), roundId, forecast, feeWei),
-    onSuccess: () => invalidateAll(qc),
-  });
-};
-
-export const useReviseForecast = () => {
-  const requireClient = useRequireClient();
-  const qc = useQueryClient();
-  return useMutation<WriteResult, Error, { roundId: number; forecast: string }>({
-    mutationFn: ({ roundId, forecast }) =>
-      reviseForecast(requireClient(), roundId, forecast),
+    mutationFn: ({ roundId, forecast, salt }) =>
+      revealForecast(requireClient(), roundId, forecast, salt),
     onSuccess: () => invalidateAll(qc),
   });
 };

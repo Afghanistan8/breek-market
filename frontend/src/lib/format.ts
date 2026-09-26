@@ -34,11 +34,12 @@ export const ROUND_STATUS_LABEL: Record<string, string> = {
   VOID_SPREAD: "void — feeds diverged",
   VOID_EXPIRED: "void — expired",
   VOID_NO_SCORES: "void — nobody in range",
+  VOID_NO_REVEALS: "void — nobody revealed",
 };
 
 export const PHASE_LABEL: Record<string, string> = {
   ACCEPTING: "Accepting forecasts",
-  LOCKED: "Locked — window running",
+  REVEALING: "Reveal your forecast",
   AWAITING_SCORE: "Awaiting score",
   SCORED: "Scored",
   VOID: "Void",
@@ -50,6 +51,8 @@ export const OUTCOME_LABEL: Record<string, string> = {
   REFUND_VOID_SPREAD: "refund — feeds diverged",
   REFUND_VOID_EXPIRED: "refund — round expired",
   REFUND_VOID_NO_SCORES: "refund — nobody in range",
+  REFUND_VOID_NO_REVEALS: "refund — nobody revealed",
+  NOT_REVEALED: "not revealed — fee forfeited to the pot",
 };
 
 /** A round in one line. */

@@ -307,11 +307,15 @@ These affect development, not the deployed contract.
   cleanly and is the check to run; semantic checking is covered instead by 124 tests
   that execute the real contract through the real runner.
 * **`genlayer` CLI 0.39.2 has no `--value` flag**, so the payable
-  `submit_forecast` cannot be called from it.
-* **The CLI's argument parser crashes on a decimal**, so even unpriced
-  `revise_forecast` is unreachable from it: a forecast like `120.50` reaches
-  `BigInt("120.50")`, which throws. `open_round` works from the CLI; entering
-  and revising need the frontend or `scripts/net_exercise.py`.
+  `commit_forecast` cannot be called from it. Verified again after the
+  commit-reveal change: `genlayer write --help` offers `--fee-value` for the
+  fee deposit and nothing for native GEN.
+* **The CLI's argument parser crashes on a decimal**: a price like `120.50`
+  reaches `BigInt("120.50")`, which throws. This no longer blocks entering,
+  because entering now sends a 64-character hex digest, but it does block
+  `reveal_forecast` from the CLI. `open_round` works from the CLI and was used
+  to open the live rounds; entering and revealing need the frontend or
+  `scripts/net_exercise.py`.
 * **`gltest`'s `vm.warp()` does not propagate into `gl.message_raw['datetime']`**
   (it refreshes sender, origin and value only). `tests/conftest.py::warp_to`
   sets both; without it every warp silently leaves the contract frozen at deploy
@@ -444,9 +448,10 @@ downgrade), the refusal to price from one feed, the GMT+1 window arithmetic, the
 integer-only money path, and the expiry refund that guarantees no fee is ever
 stranded.
 
-Prior deployment, superseded:
-`0xC69eDF8Cd4d723002d1d658CAB3AD616A34532d7` (BreekMarket).
-Current: `0x4aDb6a8f9D0B920cC5699F75060324575C01E19a` (BreekForecast).
+Prior deployments, superseded:
+`0xC69eDF8Cd4d723002d1d658CAB3AD616A34532d7` (BreekMarket),
+`0x4aDb6a8f9D0B920cC5699F75060324575C01E19a` (BreekForecast, plaintext forecasts).
+Current: `0xFB18E78053c22d9e1C7681174f4cCA2a96E0AD18`.
 
 ---
 
@@ -454,8 +459,9 @@ Current: `0x4aDb6a8f9D0B920cC5699F75060324575C01E19a` (BreekForecast).
 
 Found by writing hostile-input tests after the redesign, not by inspection.
 
-`submit_forecast` is payable and is written so that every rejection refunds
-inside the same call. One path escaped that: the size of the number itself.
+`commit_forecast` (then named `submit_forecast`, and taking a plaintext price)
+is payable and is written so that every rejection refunds inside the same call.
+One path escaped that: the size of the number itself.
 
 A scaled forecast is stored in a `u256` slot, which holds ~1.16e77. A forecast
 of 70 digits scales past that, and the overflow is raised by the **storage
@@ -472,9 +478,8 @@ call reverted with the fee already inside the contract — exactly the
 stranded-value class the design claims to avoid. A 69-digit forecast was
 accepted; 70 reverted.
 
-**Fix.** An explicit `MAX_FORECAST = 10**18 * PRICE_SCALE` bound, checked in
-both `submit_forecast` and `revise_forecast` *before* the `Entry` is
-constructed. It sits far below the storage ceiling, so no real price can reach
+**Fix.** An explicit `MAX_FORECAST = 10**18 * PRICE_SCALE` bound, checked
+*before* the scaled value is written to storage. It sits far below the storage ceiling, so no real price can reach
 it, and the rejection is an ordinary in-call refund.
 
 The bound is published through `get_catalog` as `max_forecast` so the interface
@@ -484,10 +489,15 @@ Pinned by `tests/direct/test_hostile.py`, which also covers the entrant cap, all
 malformed forecasts, every wrong fee, and the views that touch a zero
 `total_weight`.
 
+Under commit-reveal the payable call can no longer see a price at all, so this
+class of bug moved to `reveal_forecast`, which carries no value: the bound is
+still checked, but a revert there strands nothing.
+
 Superseded deployments:
 `0xC69eDF8Cd4d723002d1d658CAB3AD616A34532d7` (BreekMarket, old mechanics),
-`0x2b5cF7247380d9B487758f27A2A5e1FFA7d821f7` (BreekForecast, this bug).
-Current: `0x4aDb6a8f9D0B920cC5699F75060324575C01E19a`.
+`0x2b5cF7247380d9B487758f27A2A5e1FFA7d821f7` (BreekForecast, this bug),
+`0x4aDb6a8f9D0B920cC5699F75060324575C01E19a` (BreekForecast, plaintext forecasts).
+Current: `0xFB18E78053c22d9e1C7681174f4cCA2a96E0AD18`.
 
 ---
 
@@ -505,7 +515,147 @@ A decimal such as `120.50` is numeric but not a safe integer, so it reaches
 `BigInt("120.50")` and throws `SyntaxError: Cannot convert 120.50 to a BigInt`.
 There is no string-escape prefix.
 
-This means `submit_forecast` and `revise_forecast` are unreachable from the CLI
-regardless of the missing `--value` flag — a forecast is a decimal by nature.
-`scripts/net_exercise.py` passes a Python `str` through genlayer-py and is
-unaffected, as is the browser.
+This means `reveal_forecast` is unreachable from the CLI regardless of the
+missing `--value` flag — a forecast is a decimal by nature. `commit_forecast`
+is unreachable for the other reason, the fee. `scripts/net_exercise.py` passes
+a Python `str` through genlayer-py and is unaffected, as is the browser.
+
+---
+
+## 16. Audit finding: every forecast was readable before entries closed
+
+Reported against the deployed contract, and the most serious defect in the
+project's history. It is recorded in full because the shape of the mistake
+matters more than the fix.
+
+### What was wrong
+
+`Entry.forecast` held the price as plaintext, written by `submit_forecast`
+straight from a caller-supplied argument. Three routes then returned it:
+
+| Route | Guard | Result |
+|---|---|---|
+| `get_entry(round_id, who)` | none | any address, any phase, returns the price |
+| `list_entries(who, limit)` | none | delegates to `get_entry`, in bulk |
+| `get_leaderboard(round_id, limit)` | `r.status != ""` | correctly withheld |
+
+Only the third was guarded, which is what made the defect survive review: the
+leaderboard *looked* like the concealment mechanism, and it worked. Meanwhile
+`get_entry` accepted an arbitrary `who` and answered honestly.
+
+Demonstrated rather than argued, against the live contract, from a freshly
+generated address that had never touched it:
+
+```
+stranger 0xf1FE45Deb3081aB44cB8d483Caed7d3395d49f93
+get_entry(3, 0x4184bc…0df3)['forecast'] -> '5.00000000'
+list_entries(0x4184bc…0df3)            -> round 3, '5.00000000'
+get_leaderboard(3)                     -> forecast: ''      (withheld)
+```
+
+### Why the view guards were never the real fix
+
+Adding a phase check to `get_entry` would have closed those three routes and
+left the contest broken anyway. **Transaction calldata is public the moment it
+is broadcast.** `submit_forecast(3, "5.00")` publishes `5.00` to anyone reading
+the chain, the mempool, or the explorer, whatever the views subsequently
+choose to return. A view guard hides the number from people who ask politely.
+
+Concealment therefore has to happen *before* the value reaches the chain, which
+means the chain must never receive it until it no longer matters.
+
+### The design
+
+```
+commit_forecast(round_id, commitment)        payable, until locks_at
+revise_commitment(round_id, commitment)      free,    until locks_at
+reveal_forecast(round_id, price, salt)       [locks_at, scoreable_at)
+score_round(round_id)                        from scoreable_at
+```
+
+```
+commitment = sha256("c1|<round_id>|<sender lowercase hex>|<scaled price>|<salt>")
+```
+
+| Element | Why it is there |
+|---|---|
+| `sender` | a rival can copy a public digest; without this they could enter with it and replay your revealed `(price, salt)` to obtain your forecast as their own |
+| `round_id` | stops a commitment being carried between rounds |
+| salt, min 16 hex | prices occupy a small space and the rest of the preimage is public, so an unsalted digest is enumerable in seconds |
+| scaled integer | `0.1` has no exact double; hashing a float would make digests unreproducible across clients |
+| lowercase hex | a checksummed address would hash differently and the entry could never be opened |
+
+**Reveal window edges.** It opens at `locks_at` because a forecast revealed any
+earlier is visible to someone who can still enter. It closes at `scoreable_at`
+because that is when the settling price exists, and a reveal made knowing the
+answer is a decision to compete rather than a forecast.
+
+**Unrevealed entries forfeit to the pot.** Reveals overlap the measurement
+window, so an entrant could commit from ten wallets across a price range and
+open only the one that aged well. If abandonment were refunded, that buys ten
+attempts for the price of one. Forfeiting charges full stake for each. Nothing
+is stranded: forfeited fees are paid out to those who revealed, and a round
+where *nobody* reveals becomes `VOID_NO_REVEALS`, refunds everyone, and makes
+no HTTP request at all.
+
+### What is now guaranteed
+
+The primary guarantee is structural rather than procedural: before a reveal,
+`Entry.forecast` is `0` and the plaintext has never existed in contract
+storage. There is no leak available to a view because there is nothing to
+leak. `get_entry` additionally gates on `entry.revealed` — the same flag the
+reveal writes, not a second clock comparison that could disagree with the
+first.
+
+### How it is tested
+
+`tests/direct/test_concealment.py`, written from the attacker's side:
+
+* a paying rival and an unrelated stranger both try `get_entry`, `list_entries`
+  and `get_leaderboard` against another entrant, before and during the round;
+* a sweep calls *every* public view and searches the serialised output for the
+  number, so a view added later is covered the day it is added;
+* the copy-the-digest-and-replay attack, end to end;
+* a commitment carried between rounds;
+* both edges of the reveal window, to the second;
+* a brute force over every price from 100 to 150 at one-cent steps, confirming
+  the salt is what defeats it — with a positive control proving the grind would
+  find the answer if the salt were known;
+* twelve entrants inspecting each other, and one holdout whose number never
+  becomes readable.
+
+The tests were mutation-checked rather than trusted. Removing the sender from
+the preimage fails five of them; allowing a late reveal fails the window test;
+restoring the old `get_entry` behaviour fails three.
+
+### Cross-language agreement
+
+The contract hashes in Python, the frontend in TypeScript with Web Crypto. A
+mismatch between them would take an entry fee and leave a commitment nobody
+could ever open — the most expensive bug this design admits, and invisible to
+either codebase alone. `tests/vectors/commit_vectors.json` holds fixed
+known-answer vectors covering `0.1`, a bare leading dot, over-precise input
+that must truncate rather than round, an integer price and a large value. The
+Python side is checked by `tests/direct/test_commit_vectors.py`; the shipped
+TypeScript is checked by `scripts/check_commit_vectors.mjs`, which imports the
+real module rather than reimplementing it. Neither is tested against the other.
+
+The contract also publishes the scheme through `get_catalog`
+(`commit_version`, `commit_preimage`, `price_scale`, `salt_min_len`), and the
+frontend refuses to build a commitment it does not recognise rather than
+creating an unopenable entry.
+
+### Residual risk, stated plainly
+
+The salt cannot go on chain without defeating the commitment, so it lives in
+the entrant's browser. Losing it forfeits the fee, and there is no recovery
+path — one would require a privileged address, and there is none. The app
+writes the key to storage *before* sending the transaction, shows it on screen,
+and offers it as a download; `net_exercise.py` writes it to
+`.breek-reveal.json` before sending. That is mitigation, not elimination.
+
+Superseded deployments:
+`0xC69eDF8Cd4d723002d1d658CAB3AD616A34532d7` (BreekMarket, old mechanics),
+`0x2b5cF7247380d9B487758f27A2A5e1FFA7d821f7` (BreekForecast, stranded fee),
+`0x4aDb6a8f9D0B920cC5699F75060324575C01E19a` (BreekForecast, plaintext forecasts).
+Current: `0xFB18E78053c22d9e1C7681174f4cCA2a96E0AD18`.

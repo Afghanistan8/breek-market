@@ -3,8 +3,9 @@ import { Link } from "react-router-dom";
 import { StatusChip } from "../components/RoundRow";
 import { TxStatus } from "../components/TxStatus";
 import { useCanWrite } from "../components/WriteGate";
-import { useCollect, useMyEntries } from "../hooks";
+import { useCollect, useMyEntries, useNow } from "../hooks";
 import { OUTCOME_LABEL, bpsAsPct, fmtGen, shortAddress, trimPrice } from "../lib/format";
+import { fmtCountdown } from "../lib/gmt";
 import { useWallet } from "../lib/wallet";
 
 export default function MyForecasts() {
@@ -12,6 +13,7 @@ export default function MyForecasts() {
   const canWrite = useCanWrite();
   const mine = useMyEntries();
   const collectIt = useCollect();
+  const now = useNow();
 
   if (!address) {
     return (
@@ -33,6 +35,13 @@ export default function MyForecasts() {
     (sum, r) => (r.entry.collected ? sum : sum + BigInt(r.entry.collectable_wei || "0")),
     0n,
   );
+  // Rounds where entries have closed, this wallet is in, and the commitment is
+  // still sealed. Missing the window forfeits the fee, so this is the single
+  // most urgent thing this page can tell someone -- it goes above everything.
+  const awaitingReveal = rows.filter(
+    (r) => r.round.phase === "REVEALING" && r.entry.entered && !r.entry.revealed,
+  );
+
   const graded = rows.filter((r) => r.entry.error_bps !== "");
   const bestError = graded.length
     ? Math.min(...graded.map((r) => Number(r.entry.error_bps)))
@@ -68,6 +77,30 @@ export default function MyForecasts() {
           </div>
         </div>
       </header>
+
+      {awaitingReveal.length > 0 && (
+        <div className="note note-warn">
+          <strong>
+            {awaitingReveal.length === 1
+              ? "One forecast still needs revealing."
+              : `${awaitingReveal.length} forecasts still need revealing.`}
+          </strong>{" "}
+          A sealed entry that is never opened scores nothing and its fee stays
+          in the pot for the entrants who did reveal.
+          <ul style={{ margin: "8px 0 0", paddingLeft: 18 }}>
+            {awaitingReveal.map(({ round }) => (
+              <li key={round.round_id} style={{ marginBottom: 4 }}>
+                <Link to={`/round/${round.round_id}`} style={{ color: "var(--signal)" }}>
+                  Round {String(round.round_id).padStart(3, "0")} · {round.asset}
+                </Link>{" "}
+                <span className="dim">
+                  closes in {fmtCountdown(Number(round.scoreable_at) - now)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {mine.isLoading && <div className="skeleton" style={{ height: 140 }} />}
 
@@ -114,7 +147,15 @@ export default function MyForecasts() {
                     <td>
                       <StatusChip round={round} />
                     </td>
-                    <td>{trimPrice(entry.forecast)}</td>
+                    <td>
+                      {entry.revealed ? (
+                        trimPrice(entry.forecast)
+                      ) : entry.entered ? (
+                        <span className="dim">sealed</span>
+                      ) : (
+                        <span className="dim">—</span>
+                      )}
+                    </td>
                     <td>{round.consensus ? trimPrice(round.consensus) : <span className="dim">—</span>}</td>
                     <td style={{ color: zero ? "var(--drift)" : undefined }}>
                       {entry.error_bps ? bpsAsPct(entry.error_bps) : <span className="dim">—</span>}

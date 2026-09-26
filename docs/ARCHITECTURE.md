@@ -167,7 +167,7 @@ There is a known failure class in value-bearing contracts: a payable method
 takes the value, then reverts, and the fee is credited to the contract with no
 path back out.
 
-`submit_forecast` is written so that **it never reverts once value has been
+`commit_forecast` is written so that **it never reverts once value has been
 credited**. Every invalid case — unknown round, locked round, wrong fee, already
 entered, round full, malformed forecast — refunds the attached value inside the
 same call and returns a `REFUNDED:<reason>` string instead of raising. The only
@@ -215,9 +215,10 @@ Vite + React + TypeScript + TanStack Query, with `genlayer-js` for chain access.
   normalised from GenLayer's `Map` decoding into plain objects once, here.
 * `src/lib/gmt.ts` — a direct mirror of the contract's calendar maths, so the UI
   and the contract cannot disagree about when a window opens.
-* Forecasts are never rendered while a round is accepting; the contract itself
-  withholds them from `get_leaderboard` until the round is priced, so the UI
-  could not leak them even if it tried.
+* Forecasts are never rendered while a round is accepting, and the UI could not
+  leak one if it tried: the number is not on chain yet. `src/lib/commit.ts`
+  hashes it in the browser and only the digest is sent. The plaintext and salt
+  are held locally until the entrant reveals.
 * `src/lib/wallet.tsx` — MetaMask GenLayer snap. The app never asks for,
   stores, or handles a private key.
 
@@ -225,6 +226,60 @@ Writes run through `preflight()`, which refuses to send if the connected network
 has no usable fee/consensus configuration. A doomed transaction costs a
 signature and teaches the user nothing, so it fails before send with a message
 naming the network.
+
+### Concealment
+
+The forecast is the one value in this system that must not be public before a
+deadline, and the first version of this contract got that wrong in a way worth
+recording: forecasts were stored as plaintext, and `get_entry` accepted any
+address and returned the number with no phase check. `list_entries` delegated
+to it. `get_leaderboard` withheld the number, which made the leak look closed
+while three other routes were open.
+
+The deeper mistake was treating concealment as a property of the views. It is
+not. Calldata is public when a transaction is broadcast, so a contract that
+takes a plaintext forecast has already published it; no amount of care in a
+view can retract that. Concealment has to happen before the value reaches the
+chain at all.
+
+Hence commit-reveal:
+
+```
+commit_forecast(round_id, sha256("c1|<round_id>|<sender>|<scaled>|<salt>"))   payable
+reveal_forecast(round_id, price, salt)                                        after lock
+```
+
+Four things are load bearing:
+
+1. **The sender is in the preimage.** Digests are public. Without this, a rival
+   copies your digest, enters with it, waits for you to reveal, and replays
+   your `(price, salt)` — obtaining an accurate entry without forecasting.
+2. **The round is in the preimage.** A commitment cannot be carried to another
+   round.
+3. **A minimum salt length is enforced by the contract.** Prices occupy a small
+   space; without a salt an attacker enumerates every plausible price in
+   seconds, since the rest of the preimage is public.
+4. **Reveals are closed at `scoreable_at`.** That is the instant the settling
+   price exists. A later reveal is a decision made knowing the answer.
+
+`get_entry` still gates on `entry.revealed` rather than on a clock. Two guards
+derived from time can disagree; a guard reading the same flag the reveal writes
+cannot. It is defence in depth rather than the defence itself — the primary
+guarantee is that the plaintext is not in storage to leak.
+
+Unrevealed entries forfeit their fee to the pot. This is the piece that keeps
+the economics honest: reveals overlap the measurement window, so refunding
+would let someone commit from many wallets across a price range and open only
+the one that aged well. Forfeiting charges full stake for every abandonment. A
+round where nobody reveals voids as `VOID_NO_REVEALS` and refunds everyone,
+making no HTTP request at all — there is nothing to grade, so there is no
+reason to ask a feed for a price.
+
+`tests/direct/test_concealment.py` is written from the attacker's side and
+sweeps every public view looking for the number. `tests/vectors/` holds
+known-answer vectors that both the Python contract and the TypeScript client
+are tested against, separately — never against each other, because two
+implementations that are wrong in the same way agree perfectly.
 
 ### Live prices in the interface
 
@@ -237,7 +292,7 @@ round will price cleanly, and a gap outside it is a standing warning that the
 round could void and refund.
 
 That data is display-only, and the separation is absolute: no value it produces
-is ever passed to `submit_forecast`, `revise_forecast` or `score_round` as an
+is ever passed to `commit_forecast`, `reveal_forecast` or `score_round` as an
 argument. The only route from a displayed number into a transaction is a human
 reading it and choosing to type it. The contract fetches its own prices inside
 `gl.eq_principle.strict_eq`, and nothing in the browser can put a number in

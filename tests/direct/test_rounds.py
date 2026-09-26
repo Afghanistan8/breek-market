@@ -1,8 +1,12 @@
-"""Round lifecycle: open, enter, revise, score, collect.
+"""Round lifecycle: commit, revise, reveal, score, collect.
 
 These drive the public methods exactly as a wallet would, including the fee
-attached to ``submit_forecast``, so the refund-instead-of-revert rule is
+attached to ``commit_forecast``, so the refund-instead-of-revert rule is
 exercised for real rather than asserted about.
+
+Entering is a two-step commit-reveal, so ``enter`` seals a forecast and
+``score`` opens every commitment on the way past the window. A test that cares
+about the seal itself does the two steps by hand.
 """
 
 import pytest
@@ -12,6 +16,7 @@ from tests.conftest import (
     ENTRY_FEE,
     GEN,
     HOUR,
+    commitment,
     day_window,
     hexaddr,
     mock_feeds,
@@ -36,18 +41,53 @@ def open_round(breek, vm, asset="SOL", window=DAY_ID, timeframe="DAILY"):
     return int(res.split(":")[1])
 
 
+#: Every commitment made in the current test, so ``reveal_all`` can open them.
+#: Keyed by round id; a salt is handed out per entry and never reused.
+_SEALED: dict = {}
+
+
+def salt_for(n: int) -> str:
+    return "%016x" % (0xB0000000 + n)
+
+
 def enter(contract, vm, who, round_id, forecast, fee=ENTRY_FEE):
+    """Commit a sealed forecast. The plaintext never touches the chain here."""
+    salt = salt_for(len(_SEALED.get(round_id, [])))
     vm.sender = who
+    vm.origin = who
     vm.value = fee
     try:
-        return contract.submit_forecast(round_id, forecast)
+        out = contract.commit_forecast(round_id, commitment(round_id, who, forecast, salt))
     finally:
         vm.value = 0
+    if out.startswith("COMMITTED:"):
+        _SEALED.setdefault(round_id, []).append((who, forecast, salt))
+    return out
+
+
+def reveal_all(contract, vm, round_id):
+    """Open every commitment made for this round, inside the reveal window."""
+    r = contract.get_round(round_id)
+    warp_to(vm, int(r["locks_at"]) + HOUR)
+    for who, forecast, salt in _SEALED.get(round_id, []):
+        vm.sender = who
+        vm.origin = who
+        vm.value = 0
+        contract.reveal_forecast(round_id, forecast, salt)
+
+
+@pytest.fixture(autouse=True)
+def _clear_sealed():
+    _SEALED.clear()
+    yield
+    _SEALED.clear()
 
 
 def score(breek, vm, rid, *, a="117.88", b="117.96", asset="SOL",
-          start=DAY_START, end=DAY_END, at=AFTER_CLOSE):
+          start=DAY_START, end=DAY_END, at=AFTER_CLOSE, reveal=True):
     contract, _ = breek
+    if reveal:
+        reveal_all(contract, vm, rid)
     vm.clear_mocks()
     mock_feeds(vm, asset, start, end, a_close=a, b_close=b)
     warp_to(vm, at)
@@ -112,12 +152,21 @@ def test_anyone_can_open(breek, vm, bob):
 
 
 def test_entry_takes_a_number_not_a_side(breek, vm, bob):
+    """Entering stores a sealed number, and the seal holds until reveal."""
     contract, _ = breek
     rid = open_round(breek, vm)
-    assert enter(contract, vm, bob, rid, "118.40") == "ENTERED:118.40000000"
+    assert enter(contract, vm, bob, rid, "118.40").startswith("COMMITTED:")
+
     entry = contract.get_entry(rid, hexaddr(bob))
     assert entry["entered"] is True
-    assert entry["forecast"] == "118.40000000"
+    assert entry["revealed"] is False
+    assert entry["forecast"] == ""
+    assert len(entry["commitment"]) == 64
+
+    reveal_all(contract, vm, rid)
+    opened = contract.get_entry(rid, hexaddr(bob))
+    assert opened["revealed"] is True
+    assert opened["forecast"] == "118.40000000"
 
 
 def test_every_entrant_pays_the_same_flat_fee(breek, vm, bob, carol):
@@ -126,8 +175,8 @@ def test_every_entrant_pays_the_same_flat_fee(breek, vm, bob, carol):
     rid = open_round(breek, vm)
     assert enter(contract, vm, bob, rid, "118.40", fee=2 * GEN) == "REFUNDED:WRONG_FEE"
     assert enter(contract, vm, bob, rid, "118.40", fee=ENTRY_FEE // 2) == "REFUNDED:WRONG_FEE"
-    assert enter(contract, vm, bob, rid, "118.40") == "ENTERED:118.40000000"
-    assert enter(contract, vm, carol, rid, "117.10") == "ENTERED:117.10000000"
+    assert enter(contract, vm, bob, rid, "118.40").startswith("COMMITTED:")
+    assert enter(contract, vm, carol, rid, "117.10").startswith("COMMITTED:")
     assert contract.get_round(rid)["pot_wei"] == str(2 * ENTRY_FEE)
 
 
@@ -139,12 +188,45 @@ def test_second_entry_from_the_same_wallet_is_refunded(breek, vm, bob):
     assert contract.get_round(rid)["pot_wei"] == str(ENTRY_FEE)
 
 
-def test_bad_forecast_is_refunded(breek, vm, bob):
+def test_bad_commitment_is_refunded(breek, vm, bob):
+    """A commitment must be a sha256 digest, and the fee comes back if not."""
     contract, _ = breek
     rid = open_round(breek, vm)
-    for bad in ["", "abc", "-5", "1e5", "0"]:
-        assert enter(contract, vm, bob, rid, bad) == "REFUNDED:BAD_FORECAST"
+    bad_digests = [
+        "",                   # empty
+        "abc",                # too short
+        "z" * 64,             # right length, not hex
+        "A" * 64,             # uppercase: would hash-mismatch forever
+        "a" * 63,             # one short
+        "a" * 65,             # one long
+    ]
+    for bad in bad_digests:
+        vm.sender = bob
+        vm.origin = bob
+        vm.value = ENTRY_FEE
+        try:
+            assert contract.commit_forecast(rid, bad) == "REFUNDED:BAD_COMMITMENT"
+        finally:
+            vm.value = 0
     assert contract.get_round(rid)["pot_wei"] == "0"
+
+
+def test_bad_forecast_is_rejected_at_reveal(breek, vm, bob):
+    """A malformed price cannot be revealed, and cannot strand a fee either."""
+    contract, _ = breek
+    rid = open_round(breek, vm)
+    enter(contract, vm, bob, rid, "118.40")
+    r = contract.get_round(rid)
+    warp_to(vm, int(r["locks_at"]) + HOUR)
+    vm.sender = bob
+    vm.origin = bob
+    for bad in ["abc", "-5", "1e5", "0"]:
+        with pytest.raises(Exception):
+            contract.reveal_forecast(rid, bad, salt_for(0))
+    # The entry survives every rejected attempt and can still be opened.
+    assert contract.get_entry(rid, hexaddr(bob))["revealed"] is False
+    contract.reveal_forecast(rid, "118.40", salt_for(0))
+    assert contract.get_entry(rid, hexaddr(bob))["forecast"] == "118.40000000"
 
 
 def test_late_entry_is_refunded(breek, vm, bob):
@@ -166,7 +248,7 @@ def test_entry_with_no_fee_reverts(breek, vm, bob):
     rid = open_round(breek, vm)
     vm.sender = bob
     with pytest.raises(Exception, match="NO_FEE_ATTACHED"):
-        contract.submit_forecast(rid, "118.40")
+        contract.commit_forecast(rid, "a" * 64)
 
 
 # --- revising --------------------------------------------------------------
@@ -178,13 +260,28 @@ def test_forecast_can_be_revised_freely_before_lock(breek, vm, bob):
     rid = open_round(breek, vm)
     enter(contract, vm, bob, rid, "118.40")
     vm.sender = bob
-    assert contract.revise_forecast(rid, "117.95") == "REVISED:117.95000000"
-    assert contract.revise_forecast(rid, "117.90") == "REVISED:117.90000000"
+    vm.origin = bob
+
+    first = commitment(rid, bob, "117.95", salt_for(0))
+    second = commitment(rid, bob, "117.90", salt_for(0))
+    assert contract.revise_commitment(rid, first) == "REVISED:" + first
+    assert contract.revise_commitment(rid, second) == "REVISED:" + second
+
     entry = contract.get_entry(rid, hexaddr(bob))
-    assert entry["forecast"] == "117.90000000"
+    assert entry["commitment"] == second
+    assert entry["forecast"] == ""      # still sealed
     assert entry["revisions"] == "2"
     # revising never costs anything
     assert contract.get_round(rid)["pot_wei"] == str(ENTRY_FEE)
+
+    # Only the last commitment can be opened.
+    warp_to(vm, int(contract.get_round(rid)["locks_at"]) + HOUR)
+    vm.sender = bob
+    vm.origin = bob
+    with pytest.raises(Exception, match="COMMITMENT_MISMATCH"):
+        contract.reveal_forecast(rid, "118.40", salt_for(0))
+    contract.reveal_forecast(rid, "117.90", salt_for(0))
+    assert contract.get_entry(rid, hexaddr(bob))["forecast"] == "117.90000000"
 
 
 def test_revision_is_rejected_after_lock(breek, vm, bob):
@@ -194,7 +291,7 @@ def test_revision_is_rejected_after_lock(breek, vm, bob):
     warp_to(vm, DAY_START)
     vm.sender = bob
     with pytest.raises(Exception, match="ROUND_LOCKED"):
-        contract.revise_forecast(rid, "117.95")
+        contract.revise_commitment(rid, commitment(rid, bob, "117.95", salt_for(1)))
 
 
 def test_revision_requires_an_entry(breek, vm, bob):
@@ -202,7 +299,7 @@ def test_revision_requires_an_entry(breek, vm, bob):
     rid = open_round(breek, vm)
     vm.sender = bob
     with pytest.raises(Exception, match="NOT_ENTERED"):
-        contract.revise_forecast(rid, "117.95")
+        contract.revise_commitment(rid, commitment(rid, bob, "117.95", salt_for(0)))
 
 
 # --- phases ----------------------------------------------------------------
@@ -213,9 +310,9 @@ def test_phase_progression(breek, vm):
     rid = open_round(breek, vm)
     assert contract.get_phase(rid) == "ACCEPTING"
     warp_to(vm, DAY_START)
-    assert contract.get_phase(rid) == "LOCKED"
+    assert contract.get_phase(rid) == "REVEALING"
     warp_to(vm, DAY_END - 1)
-    assert contract.get_phase(rid) == "LOCKED"
+    assert contract.get_phase(rid) == "REVEALING"
     warp_to(vm, DAY_END)
     assert contract.get_phase(rid) == "AWAITING_SCORE"
 
@@ -475,8 +572,16 @@ def test_list_entries_returns_my_rounds(breek, vm, bob):
     contract, _ = breek
     rid = open_round(breek, vm)
     enter(contract, vm, bob, rid, "118.40")
+
     out = contract.list_entries(hexaddr(bob), 10)
     assert len(out["entries"]) == 1
+    # Sealed even to the entrant's own listing, because this view answers for
+    # any address and must not behave differently depending on who asks.
+    assert out["entries"][0]["entry"]["forecast"] == ""
+    assert out["entries"][0]["entry"]["revealed"] is False
+
+    reveal_all(contract, vm, rid)
+    out = contract.list_entries(hexaddr(bob), 10)
     assert out["entries"][0]["entry"]["forecast"] == "118.40000000"
 
 
