@@ -119,23 +119,59 @@ Four rounds are open on the current contract, all through the permissionless
 
 | id | asset | timeframe | GMT+1 window | phase | entrants | revealed |
 |---|---|---|---|---|---|---|
-| 1 | SOL | DAILY | 2026-09-28 | ACCEPTING | 0 | 0 |
+| 1 | SOL | DAILY | 2026-09-28 | ACCEPTING | **1** | 0 |
 | 2 | ETH | WEEKLY | week of 2026-09-28 | ACCEPTING | 0 | 0 |
-| 3 | NEAR | DAILY | 2026-09-28 | ACCEPTING | 0 | 0 |
+| 3 | NEAR | DAILY | 2026-09-28 | ACCEPTING | **1** | 0 |
 | 4 | SOL | WEEKLY | week of 2026-09-28 | ACCEPTING | 0 | 0 |
 
 ### Forecasts submitted
 
-**None yet on the current contract.** The one entry made on the superseded
-contract — round 3, NEAR, `0x4184bc…FB0df3`, tx `0x7a920956…cfcfd96f` — was
-made under the plaintext design. Its forecast (`5.00000000`) is public and
-always was; that is the defect. It is not carried forward, because state does
-not migrate and because it was never concealed in the first place.
+Two sealed entries are live, both FINALIZED with GenVM result SUCCESS:
 
-Entering the current contract requires the payable `commit_forecast`, which the
-CLI cannot reach: `genlayer write` has no flag for attaching native GEN, only
-`--fee-value` for the fee deposit. Entry is therefore through the frontend or
-`scripts/net_exercise.py`.
+| round | asset | tx | commitment | forecast |
+|---|---|---|---|---|
+| 1 | SOL | [`0xf20714f3…8f7c8092`](https://explorer-studio.genlayer.com/tx/0xf20714f33250494427e9f263993af62126f9bab1747854922846c54e8f7c8092) | `9015d9dc…4218f078` | **sealed** |
+| 3 | NEAR | [`0x9c87b8c8…925e2e8c`](https://explorer-studio.genlayer.com/tx/0x9c87b8c84348be8bbac345ae59ef3e8bce28c68e502b662ec00407cd925e2e8c) | `44ec3a18…18c2497e` | **sealed** |
+
+Contract balance moved to **2 GEN**, so both fees transferred rather than being
+refunded in call.
+
+**Concealment verified against the live contract.** Probed from a freshly
+generated address that had never touched it — the same probe that produced
+`5.00000000` on the superseded contract:
+
+```
+get_entry(1, entrant)      -> entered=True revealed=False forecast=''
+get_entry(3, entrant)      -> entered=True revealed=False forecast=''
+list_entries(entrant)      -> no forecast in the payload
+get_leaderboard(1 | 3)     -> no forecast in the payload
+```
+
+The commitment is returned, as it must be — it is what a reveal is checked
+against — and it discloses nothing. The explorer page for each transaction was
+also checked for the plaintext price: it is not there, which is the point that
+a view guard alone could never have delivered.
+
+The one entry on the superseded contract — round 3, NEAR, tx
+`0x7a920956…cfcfd96f` — was made under the plaintext design. Its forecast
+(`5.00000000`) is public and always was; that is the defect. State does not
+migrate, and it was never concealed in the first place.
+
+### How these were sent
+
+`commit_forecast` is payable and the `genlayer` CLI 0.39.2 cannot attach native
+GEN: `writeParams` hardcodes `value: 0n` in `dist/index.js`, and the only
+related flag, `--fee-value`, is the fee deposit. Attempting it fails honestly
+rather than silently — tx
+[`0x090ac973…cce71893`](https://explorer-studio.genlayer.com/tx/0x090ac973091f430d5f108813b36d5b929b44161f25133f9279123d64cce71893)
+is that attempt, rolled back with `EXPECTED:NO_FEE_ATTACHED` and nothing
+charged.
+
+These two were sent with a **copy** of the CLI in a scratch directory, with
+that one literal changed to read an environment variable. The installed CLI was
+not modified, and no private key was read, exported or handled — the copied CLI
+signs from the same OS keychain entry the real one uses. Ordinary users are
+unaffected: the frontend attaches the fee normally.
 
 ### Contract deployment
 
@@ -210,8 +246,9 @@ correctly omits the optional price fields.
 | Wallet-signed write of any kind | verified by elimination (CLI cannot attach value; no key exported) |
 | Which wallet rendered the prompt | **not recorded** &mdash; not observed from this side |
 | On-chain scoring | **not executed** &mdash; no window has closed yet |
-| On-chain `commit_forecast` | **not executed on the current contract** &mdash; needs a wallet; the CLI cannot attach value |
-| On-chain `reveal_forecast` success path | **not executed** &mdash; needs a commitment first |
+| On-chain `commit_forecast` | verified &mdash; two sealed entries FINALIZED, balance 2 GEN |
+| Concealment on the live contract | verified &mdash; a stranger cannot read either forecast through `get_entry`, `list_entries` or `get_leaderboard`, and the plaintext is absent from the transaction pages |
+| On-chain `reveal_forecast` success path | **not executed** &mdash; reveals open 28 Sep 2026 00:00 GMT+1 |
 | On-chain `collect` | **not executed** &mdash; nothing has been scored |
 
 ---
